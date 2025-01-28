@@ -43,3 +43,51 @@ struct in_addr {
 > - [htons meaning](https://jameshfisher.com/2016/12/21/htons/)
 > - also see `man byteorder`
 
+
+#### Key Differences Without Fork vs With Fork
+1. Process Model
+    * Without fork: Sequential/iterative server
+    * With fork: Concurrent server
+2. Client Handling
+    * Without fork:
+        * One client at a time
+        * Other clients must wait in queue
+        * Server blocked until current client finishes
+    * With fork:
+        * Multiple clients simultaneously
+        * Each client gets dedicated process
+        * Parent continues accepting new connections
+        * Children handle individual clients independently
+
+3. Example
+```
+Without Fork:
+Client A connects → Server handles A → Client B waits → A finishes → Server handles B
+
+With Fork:
+Client A connects → Child process 1 handles A
+Client B connects → Child process 2 handles B (simultaneously)
+```
+
+4. Resource Usage
+    * Without fork: Lower memory usage, simpler
+    * With fork: Higher memory usage, more complex but better scalability
+
+5. Code structure
+```c
+// Without Fork:
+while(1) {
+    accept_connection();
+    handle_client();  // Blocks until client finished
+}
+
+// With Fork:
+while(1) {
+    accept_connection();
+    if(fork() == 0) {
+        handle_client();  // Only child process handles client
+        exit(0);
+    }
+    // Parent continues accepting new connections
+}
+```
