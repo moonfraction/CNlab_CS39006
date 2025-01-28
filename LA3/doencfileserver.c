@@ -13,13 +13,20 @@ Link of the pcap file:
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <time.h>
 #include <signal.h>
 
 #define CHUNK_SIZE 100
 
 // Global variables
 volatile int active_children = 0;
+
+void print_server_message(const char* ip, int port, const char* message) {
+    printf("[%s:%d] %s \n", 
+           ip ? ip : "SERVER", 
+           port ? port : 20000, 
+           message);
+}
+
 
 // Signal handler for child termination
 void handle_child_exit(int sig) {
@@ -41,15 +48,11 @@ void handle_child_exit(int sig) {
 }
 
 void handle_client_disconnect(int sockfd, struct sockaddr_in *peer_addr) {
-    time_t now = time(NULL);
-    char time_str[26];
-    ctime_r(&now, time_str);
-    time_str[24] = '\0';
-    
-    printf("!!! [%s] Client %s:%d disconnected unexpectedly\n",
-           time_str,
-           inet_ntoa(peer_addr->sin_addr),
-           ntohs(peer_addr->sin_port));
+    char message[100];
+    snprintf(message, sizeof(message), "Client disconnected unexpectedly");
+    print_server_message(inet_ntoa(peer_addr->sin_addr), 
+                        ntohs(peer_addr->sin_port), 
+                        message);
 }
 
 
@@ -110,16 +113,10 @@ int main() {
     // Listen for connections
     // up to 5 concurrent client requests will be queued up
     listen(sockfd, 5);
-
-    // Get current time
-    time_t now = time(NULL);
-    char time_str[26];
-    ctime_r(&now, time_str);
-    time_str[24] = '\0'; // Remove newline
     
     // Print server start message
-    printf("[%s] Server started. Listening on port %d...\n", 
-           time_str, ntohs(serv_addr.sin_port));
+    print_server_message("SERVER", 20000, "Server started. Listening for connections");
+
     
     
     while (1) {
@@ -144,17 +141,10 @@ int main() {
             // Set up signal handler for SIGPIPE
             signal(SIGPIPE, SIG_IGN);
 
-            // Get current time
-            time_t now = time(NULL);
-            char time_str[26];
-            ctime_r(&now, time_str);
-            time_str[24] = '\0'; // Remove newline
-
             // Print connection info
-            printf("--> [%s] New client connected from %s:%d\n", 
-                time_str,
-                inet_ntoa(peer_addr.sin_addr), 
-                ntohs(peer_addr.sin_port));
+            print_server_message(inet_ntoa(peer_addr.sin_addr), 
+                    ntohs(peer_addr.sin_port), 
+                    "New client connected");
 
             
             while (1) {
@@ -167,8 +157,14 @@ int main() {
                     break;
                 }
 
-                // Print received filename info
-                printf("+++ [%s] Received Key for encryption of file: %s\n", time_str, key);
+                // File transfer messages
+                char msg[256];
+
+                // Print received key info
+                snprintf(msg, sizeof(msg), "Received Key for encryption of file: %s", key);
+                print_server_message(inet_ntoa(peer_addr.sin_addr), 
+                    ntohs(peer_addr.sin_port), 
+                    msg);
                 
                 // Create temporary filename using client's IP and port
                 char temp_filename[100];
@@ -189,7 +185,12 @@ int main() {
                     chunk_count++;
                     total_bytes += bytes_received;
                     
-                    printf("+++ Received chunk %d: %d bytes\n", chunk_count, bytes_received);
+                    
+                    snprintf(msg, sizeof(msg), "Received chunk %d: %d bytes", chunk_count, bytes_received);
+                    print_server_message(inet_ntoa(peer_addr.sin_addr), 
+                        ntohs(peer_addr.sin_port), 
+                        msg);
+
                     printf("+++ Chunk %d content:\n %s\n", chunk_count, buffer);
                     if (bytes_received < CHUNK_SIZE - 1) {  // Last chunk
                         fputs(buffer, temp_file);
@@ -197,10 +198,13 @@ int main() {
                     }
                     fputs(buffer, temp_file);
                 }
-                
-                printf("--> File transfer complete. Total: %ld bytes in %d chunks\n", 
-                    total_bytes, chunk_count);
-                
+
+                snprintf(msg, sizeof(msg), "File transfer complete. Total: %ld bytes in %d chunks", 
+                         total_bytes, chunk_count);
+                print_server_message(inet_ntoa(peer_addr.sin_addr), 
+                                    ntohs(peer_addr.sin_port), 
+                                    msg);
+
                 fclose(temp_file);
                 
                 // Create encrypted filename
@@ -229,11 +233,10 @@ int main() {
                 memset(buffer, 0, CHUNK_SIZE);
                 if (recv(newsockfd, buffer, CHUNK_SIZE - 1, 0) <= 0) break;
                 if (strcmp(buffer, "No") == 0) {
-                    // Print disconnection info
-                    printf("==> [%s] Client disconnected from %s:%d\n",
-                        time_str,
-                        inet_ntoa(peer_addr.sin_addr),
-                        ntohs(peer_addr.sin_port));
+                    // Print disconnection info using print_server_message function
+                    print_server_message(inet_ntoa(peer_addr.sin_addr),
+                                      ntohs(peer_addr.sin_port),
+                                      "Client disconnected");
                     break;
                 }
             }
