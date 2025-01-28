@@ -15,7 +15,7 @@ Link of the pcap file:
 #include <arpa/inet.h>
 #include <signal.h>
 
-#define CHUNK_SIZE 100
+#define CHUNK_SIZE 60
 
 // Global variables
 volatile int active_children = 0;
@@ -166,7 +166,7 @@ int main() {
                     ntohs(peer_addr.sin_port), 
                     msg);
                 
-                // Create temporary filename using client's IP and port
+                // temporary filename using client's IP and port
                 char temp_filename[100];
                 snprintf(temp_filename, sizeof(temp_filename), "%s.%d.txt", 
                         inet_ntoa(cli_addr.sin_addr), ntohs(cli_addr.sin_port));
@@ -191,7 +191,7 @@ int main() {
                         ntohs(peer_addr.sin_port), 
                         msg);
 
-                    printf("+++ Chunk %d content:\n %s\n", chunk_count, buffer);
+                    printf("+++ Chunk %d content:\n%s\n", chunk_count, buffer);
                     if (bytes_received < CHUNK_SIZE - 1) {  // Last chunk
                         fputs(buffer, temp_file);
                         break;

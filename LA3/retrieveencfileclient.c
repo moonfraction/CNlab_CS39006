@@ -14,7 +14,7 @@ Link of the pcap file:
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define CHUNK_SIZE 100
+#define CHUNK_SIZE 80
 
 int main() {
     int sockfd;
@@ -43,27 +43,37 @@ int main() {
         char key[27];
         FILE *fp;
         
-        // Get filename from user
+        // Getting filename from user
         while (1) {
-            printf("Enter the filename to encrypt: ");
+            printf("--> Enter the filename to encrypt: ");
             scanf("%s", filename);
             
             fp = fopen(filename, "r");
             if (fp == NULL) {
-                printf("NOTFOUND %s\n", filename);
+                printf("*** NOTFOUND %s\n", filename);
                 continue;
             }
             break;
         }
         
-        // Get encryption key from user
+        // Getting encryption key from user
         while (1) {
-            printf("Enter the 26-character encryption key: ");
+            printf("--> Enter the 26-character encryption key: ");
             scanf("%s", key);
             
             if (strlen(key) != 26) {
-                printf("Error: Key must be exactly 26 characters long\n");
+                printf("### Error: Key must be exactly 26 characters long\n");
                 continue;
+            }
+            // cheking if key is valid - should not contain duplicate ascii characters
+            int ascii[256] = {0};
+            for (int i = 0; i < 26; i++) {
+                if (ascii[(unsigned char)key[i]] == 1) {
+                    printf("*** Warning: Key should not contain duplicate characters\n");
+                    printf("*** You may not be able to decrypt the file later\n");
+                    break;
+                }
+                ascii[(unsigned char)key[i]] = 1;
             }
             break;
         }
@@ -95,13 +105,13 @@ int main() {
         }
         fclose(enc_file);
         
-        printf("File encrypted successfully!\n");
-        printf("Original file: %s\n", filename);
-        printf("Encrypted file: %s\n", enc_filename);
+        printf("+++ File encrypted successfully!\n");
+        printf("+++ Original file: %s\n", filename);
+        printf("+++ Encrypted file: %s\n", enc_filename);
         
         // Ask user if they want to encrypt another file
         char continue_choice[10];
-        printf("Do you want to encrypt another file? (Yes/No): ");
+        printf("\n--> Do you want to encrypt another file? (Yes/No): ");
         scanf("%s", continue_choice);
         
         // Send choice to server
