@@ -49,6 +49,14 @@ int main() {
         perror("Cannot create socket");
         exit(0);
     }
+
+    // Set socket options to reuse address
+    // to avoid "Address already in use" error while binding
+    int yes = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+        perror("setsockopt");
+        exit(1);
+    }
     
     // Initialize server address structure
     serv_addr.sin_family = AF_INET;
@@ -62,7 +70,19 @@ int main() {
     }
     
     // Listen for connections
+    // up to 5 concurrent client requests will be queued up
     listen(sockfd, 5);
+
+    // Get current time
+    time_t now = time(NULL);
+    char time_str[26];
+    ctime_r(&now, time_str);
+    time_str[24] = '\0'; // Remove newline
+    
+    // Print server start message
+    printf("[%s] Server started. Listening on port %d...\n", 
+           time_str, ntohs(serv_addr.sin_port));
+    
     
     while (1) {
         clilen = sizeof(cli_addr);
@@ -85,7 +105,7 @@ int main() {
         time_str[24] = '\0'; // Remove newline
 
         // Print connection info
-        printf("[%s] New client connected from %s:%d\n", 
+        printf("--> [%s] New client connected from %s:%d\n", 
                time_str,
                inet_ntoa(peer_addr.sin_addr), 
                ntohs(peer_addr.sin_port));
@@ -96,6 +116,9 @@ int main() {
             char key[27];
             memset(key, 0, sizeof(key));
             if (recv(newsockfd, key, 26, 0) <= 0) break;
+
+            // Print received filename info
+            printf("+++ [%s] Received Key for encryption of file: %s\n", time_str, key);
             
             // Create temporary filename using client's IP and port
             char temp_filename[100];
@@ -104,17 +127,30 @@ int main() {
             
             // Open temporary file for writing
             FILE *temp_file = fopen(temp_filename, "w");
+
+            // Track total bytes received
+            long total_bytes = 0;
+            int chunk_count = 0;
             
             // Receive file content in chunks
             int bytes_received;
             while ((bytes_received = recv(newsockfd, buffer, CHUNK_SIZE - 1, 0)) > 0) {
                 buffer[bytes_received] = '\0';
+                chunk_count++;
+                total_bytes += bytes_received;
+                
+                printf("+++ Received chunk %d: %d bytes\n", chunk_count, bytes_received);
+                printf("+++ Chunk %d content: %s\n", chunk_count, buffer);
                 if (bytes_received < CHUNK_SIZE - 1) {  // Last chunk
                     fputs(buffer, temp_file);
                     break;
                 }
                 fputs(buffer, temp_file);
             }
+            
+            printf("--> File transfer complete. Total: %ld bytes in %d chunks\n", 
+                   total_bytes, chunk_count);
+            
             fclose(temp_file);
             
             // Create encrypted filename
@@ -144,17 +180,31 @@ int main() {
             if (recv(newsockfd, buffer, CHUNK_SIZE - 1, 0) <= 0) break;
             if (strcmp(buffer, "No") == 0) {
                 // Print disconnection info
-                printf("[%s] Client disconnected from %s:%d\n",
+                printf("==> [%s] Client disconnected from %s:%d\n",
                        time_str,
                        inet_ntoa(peer_addr.sin_addr),
-                       ntohs(peer_addr.sin_port)
-                    );
+                       ntohs(peer_addr.sin_port));
                 break;
             }
         }
         
         close(newsockfd);
+
+        // Ask user whether to continue or shutdown
+        char choice;
+        printf("\nDo you want to wait for more clients? (y/n): ");
+        scanf(" %c", &choice);
+        
+        if (choice == 'n' || choice == 'N') {
+            printf("[%s] Server shutting down...\n", time_str);
+            close(sockfd);
+            exit(0);
+        }
+        
+        printf("[%s] Waiting for new connections...\n", time_str);
+        
     }
     
+
     return 0;
 }
