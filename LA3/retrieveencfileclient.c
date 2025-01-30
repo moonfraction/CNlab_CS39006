@@ -26,7 +26,7 @@ void print_transfer_info(const char* direction, int chunk_num, size_t bytes) {
 }
 
 void print_transfer_summary(struct transfer_stats stats, const char* direction) {
-    printf("Total chunks %s: %d, total bytes: %zu\n\n", 
+    printf("--> Total chunks %s: %d, total bytes: %zu\n\n", 
            direction, stats.chunk_count, stats.total_bytes);
 }
 
@@ -140,7 +140,9 @@ int main() {
         printf("File encrypted successfully!\n");
         printf("Original file: %s\n", filename);
         printf("Encrypted file: %s\n", enc_filename);
-        
+    
+        printf("------------------------------------------------------------\n");
+
         // Ask about continuing
         flush_stdin();
         printf("\nEncrypt another file? (Yes/No): ");

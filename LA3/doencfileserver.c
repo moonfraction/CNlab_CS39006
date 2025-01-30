@@ -45,7 +45,7 @@ void print_transfer_info(const char* ip, int port, int chunk_num, size_t bytes) 
 }
 
 void print_transfer_summary(struct transfer_stats stats, const char* direction) {
-    printf("Total chunks %s: %d, total bytes: %zu\n\n", direction, stats.chunk_count, stats.total_bytes);
+    printf("--> Total chunks %s: %d, total bytes: %zu\n\n", direction, stats.chunk_count, stats.total_bytes);
 }
 
 // Handle individual client connection
@@ -140,6 +140,9 @@ void handle_client(int client_sock, struct sockaddr_in client_addr) {
         send(client_sock, "END_OF_FILE", 11, 0);
         print_transfer_summary(send_stats, "sent");
         fclose(output_file);
+
+        printf("------------------------------------------------------------\n");
+
         // Check if client wants to continue
         memset(buffer, 0, MAX_CHUNK);
         if (recv(client_sock, buffer, MAX_CHUNK - 1, 0) <= 0 || 
@@ -199,7 +202,7 @@ int main() {
             continue;
         }
         
-        printf("New client connected: %s:%d\n", 
+        printf("\n+++ New client connected: %s:%d\n", 
                inet_ntoa(client_addr.sin_addr), 
                ntohs(client_addr.sin_port));
         
