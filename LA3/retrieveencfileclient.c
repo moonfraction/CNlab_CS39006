@@ -1,3 +1,10 @@
+/*=====================================
+Assignment 3 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+Link of the pcap file:
+=====================================*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,9 +12,23 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#define MAX_CHUNK 70
+#define MAX_CHUNK 70 // different from the server, and it does not know
 #define SERVER_PORT 8888
 #define MAX_FILENAME 256
+
+struct transfer_stats {
+    int chunk_count;
+    size_t total_bytes;
+};
+
+void print_transfer_info(const char* direction, int chunk_num, size_t bytes) {
+    printf("[Client] %s chunk #%d: %zu bytes\n", direction, chunk_num, bytes);
+}
+
+void print_transfer_summary(struct transfer_stats stats, const char* direction) {
+    printf("Total chunks %s: %d, total bytes: %zu\n\n", 
+           direction, stats.chunk_count, stats.total_bytes);
+}
 
 // Clear input buffer
 void flush_stdin() {
@@ -75,11 +96,17 @@ int main() {
         send(sock_fd, enc_key, 26, 0);
         
         // Send file contents
+        struct transfer_stats send_stats = {0, 0};
         while (fgets(buffer, MAX_CHUNK, input_file)) {
-            send(sock_fd, buffer, strlen(buffer), 0);
+            size_t bytes_to_send = strlen(buffer);
+            send(sock_fd, buffer, bytes_to_send, 0);
+            send_stats.chunk_count++;
+            send_stats.total_bytes += bytes_to_send;
+            print_transfer_info("sent", send_stats.chunk_count, bytes_to_send);
             usleep(1000);  // Prevent buffer overflow
         }
         send(sock_fd, "END_OF_FILE", 11, 0);
+        print_transfer_summary(send_stats, "sent");
         fclose(input_file);
         
         // Create encrypted filename
@@ -94,17 +121,23 @@ int main() {
         }
         
         // Receive encrypted content
+        struct transfer_stats recv_stats = {0, 0};
         while (1) {
             memset(buffer, 0, MAX_CHUNK);
             ssize_t bytes = recv(sock_fd, buffer, MAX_CHUNK - 1, 0);
             if (bytes <= 0) break;
             
             if (strncmp(buffer, "END_OF_FILE", 11) == 0) break;
+            
+            recv_stats.chunk_count++;
+            recv_stats.total_bytes += bytes;
+            print_transfer_info("received", recv_stats.chunk_count, bytes);
             fprintf(enc_file, "%s", buffer);
         }
+        print_transfer_summary(recv_stats, "received");
         fclose(enc_file);
         
-        printf("\nFile encrypted successfully!\n");
+        printf("File encrypted successfully!\n");
         printf("Original file: %s\n", filename);
         printf("Encrypted file: %s\n", enc_filename);
         

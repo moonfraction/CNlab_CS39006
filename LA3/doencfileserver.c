@@ -1,3 +1,10 @@
+/*=====================================
+Assignment 3 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+Link of the pcap file:
+=====================================*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,8 +15,13 @@
 #include <signal.h>
 #include <sys/wait.h>
 
-#define MAX_CHUNK 80
+#define MAX_CHUNK 80 // different from the client, and it does not know
 #define SERVER_PORT 8888
+
+struct transfer_stats {
+    int chunk_count;
+    size_t total_bytes;
+};
 
 // Function to handle zombie processes
 void handle_sigchld(int sig) {
@@ -26,6 +38,14 @@ char encrypt_ch(char input, const char* key) {
         return key[input - 'a'] - 'A' + 'a';
     }
     return input;
+}
+
+void print_transfer_info(const char* ip, int port, int chunk_num, size_t bytes) {
+    printf("[%s:%d] chunk #%d: %zu bytes\n", ip, port, chunk_num, bytes);
+}
+
+void print_transfer_summary(struct transfer_stats stats, const char* direction) {
+    printf("Total chunks %s: %d, total bytes: %zu\n\n", direction, stats.chunk_count, stats.total_bytes);
 }
 
 // Handle individual client connection
@@ -59,15 +79,23 @@ void handle_client(int client_sock, struct sockaddr_in client_addr) {
             continue;
         }
         
-        // Receive and store original content
+        // Receive and store original content with transfer statistics
+        struct transfer_stats recv_stats = {0, 0};
         while (1) {
             memset(buffer, 0, MAX_CHUNK);
-            ssize_t bytes = recv(client_sock, buffer, MAX_CHUNK - 1, 0);
-            if (bytes <= 0) break;
+            ssize_t bytes_received = recv(client_sock, buffer, MAX_CHUNK - 1, 0);
+            if (bytes_received <= 0) break;
             
             if (strncmp(buffer, "END_OF_FILE", 11) == 0) break;
+            
+            recv_stats.chunk_count++;
+            recv_stats.total_bytes += bytes_received;
+            print_transfer_info(client_ip, ntohs(client_addr.sin_port), 
+                      recv_stats.chunk_count, bytes_received);
+                      
             fprintf(input_file, "%s", buffer);
         }
+        print_transfer_summary(recv_stats, "received");
         fclose(input_file);
         
         // Process file and create encrypted version
@@ -97,14 +125,21 @@ void handle_client(int client_sock, struct sockaddr_in client_addr) {
             continue;
         }
         
-        while (fgets(buffer, MAX_CHUNK, output_file)) {
-            send(client_sock, buffer, strlen(buffer), 0);
+        struct transfer_stats send_stats = {0, 0};
+        size_t bytes_read;
+        
+        while ((bytes_read = fread(buffer, 1, MAX_CHUNK - 1, output_file)) > 0) {
+            send(client_sock, buffer, bytes_read, 0);
+            send_stats.chunk_count++;
+            send_stats.total_bytes += bytes_read;
+            print_transfer_info(client_ip, ntohs(client_addr.sin_port), 
+                      send_stats.chunk_count, bytes_read);
             usleep(1000);  // Small delay to prevent flooding
         }
         
         send(client_sock, "END_OF_FILE", 11, 0);
+        print_transfer_summary(send_stats, "sent");
         fclose(output_file);
-        
         // Check if client wants to continue
         memset(buffer, 0, MAX_CHUNK);
         if (recv(client_sock, buffer, MAX_CHUNK - 1, 0) <= 0 || 
