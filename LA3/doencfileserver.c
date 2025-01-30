@@ -151,6 +151,11 @@ void handle_client(int client_sock, struct sockaddr_in client_addr) {
         }
     }
     
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    getpeername(client_sock, (struct sockaddr*)&addr, &addr_len);
+    printf("Client disconnected from %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+    
     close(client_sock);
     exit(0);
 }
