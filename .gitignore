@@ -16,3 +16,6 @@ Thumbs.db
 
 # Ignore environment files
 .env
+
+# Ignore pcap
+*.pcap*

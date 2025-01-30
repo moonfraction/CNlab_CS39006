@@ -2,7 +2,8 @@
 Assignment 3 Submission
 Name: Chandransh Singh
 Roll number: 22CS30017
-Link of the pcap file:
+Link of the pcap file: 
+https://drive.google.com/file/d/1a9u-WHTwXj3sgDpkU9xcX34nqLSDF1Z6/view?usp=sharing
 =====================================*/
 
 #include <stdio.h>
@@ -15,7 +16,7 @@ Link of the pcap file:
 #define MAX_CHUNK 70 // different from the server, and it does not know
 #define SERVER_PORT 8888
 #define MAX_FILENAME 256
-
+#define BUFFER_SIZE 100
 struct transfer_stats {
     int chunk_count;
     size_t total_bytes;
@@ -39,7 +40,7 @@ void flush_stdin() {
 int main() {
     int sock_fd;
     struct sockaddr_in server_addr;
-    char buffer[MAX_CHUNK] = {0};
+    char buffer[BUFFER_SIZE] = {0};
     char filename[MAX_FILENAME];
     char enc_key[27];
     char continue_choice[10];
@@ -97,14 +98,16 @@ int main() {
         
         // Send file contents
         struct transfer_stats send_stats = {0, 0};
-        while (fgets(buffer, MAX_CHUNK, input_file)) {
-            size_t bytes_to_send = strlen(buffer);
-            send(sock_fd, buffer, bytes_to_send, 0);
+        size_t bytes_read;
+        
+        while ((bytes_read = fread(buffer, 1, MAX_CHUNK - 1, input_file)) > 0) {
+            send(sock_fd, buffer, bytes_read, 0);
             send_stats.chunk_count++;
-            send_stats.total_bytes += bytes_to_send;
-            print_transfer_info("sent", send_stats.chunk_count, bytes_to_send);
-            usleep(1000);  // Prevent buffer overflow
+            send_stats.total_bytes += bytes_read;
+            print_transfer_info("sent", send_stats.chunk_count, bytes_read);
+            usleep(1000);  // Small delay to prevent flooding
         }
+        
         send(sock_fd, "END_OF_FILE", 11, 0);
         print_transfer_summary(send_stats, "sent");
         fclose(input_file);
@@ -123,8 +126,8 @@ int main() {
         // Receive encrypted content
         struct transfer_stats recv_stats = {0, 0};
         while (1) {
-            memset(buffer, 0, MAX_CHUNK);
-            ssize_t bytes = recv(sock_fd, buffer, MAX_CHUNK - 1, 0);
+            memset(buffer, 0, BUFFER_SIZE);
+            ssize_t bytes = recv(sock_fd, buffer, BUFFER_SIZE - 1, 0);
             if (bytes <= 0) break;
             
             if (strncmp(buffer, "END_OF_FILE", 11) == 0) break;

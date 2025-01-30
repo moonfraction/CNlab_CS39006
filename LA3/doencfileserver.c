@@ -3,6 +3,7 @@ Assignment 3 Submission
 Name: Chandransh Singh
 Roll number: 22CS30017
 Link of the pcap file:
+https://drive.google.com/file/d/1a9u-WHTwXj3sgDpkU9xcX34nqLSDF1Z6/view?usp=sharing
 =====================================*/
 
 #include <stdio.h>
@@ -17,6 +18,7 @@ Link of the pcap file:
 
 #define MAX_CHUNK 80 // different from the client, and it does not know
 #define SERVER_PORT 8888
+#define BUFFER_SIZE 100
 
 struct transfer_stats {
     int chunk_count;
@@ -50,7 +52,7 @@ void print_transfer_summary(struct transfer_stats stats, const char* direction) 
 
 // Handle individual client connection
 void handle_client(int client_sock, struct sockaddr_in client_addr) {
-    char buffer[MAX_CHUNK] = {0};
+    char buffer[BUFFER_SIZE] = {0};
     char encryption_key[27] = {0};
     char temp_filename[64], enc_filename[64];
     FILE *input_file, *output_file;
@@ -82,8 +84,8 @@ void handle_client(int client_sock, struct sockaddr_in client_addr) {
         // Receive and store original content with transfer statistics
         struct transfer_stats recv_stats = {0, 0};
         while (1) {
-            memset(buffer, 0, MAX_CHUNK);
-            ssize_t bytes_received = recv(client_sock, buffer, MAX_CHUNK - 1, 0);
+            memset(buffer, 0, BUFFER_SIZE);
+            ssize_t bytes_received = recv(client_sock, buffer, BUFFER_SIZE - 1, 0);
             if (bytes_received <= 0) break;
             
             if (strncmp(buffer, "END_OF_FILE", 11) == 0) break;
@@ -144,8 +146,8 @@ void handle_client(int client_sock, struct sockaddr_in client_addr) {
         printf("------------------------------------------------------------\n");
 
         // Check if client wants to continue
-        memset(buffer, 0, MAX_CHUNK);
-        if (recv(client_sock, buffer, MAX_CHUNK - 1, 0) <= 0 || 
+        memset(buffer, 0, BUFFER_SIZE);
+        if (recv(client_sock, buffer, BUFFER_SIZE - 1, 0) <= 0 || 
             strcmp(buffer, "No") == 0) {
             break;
         }

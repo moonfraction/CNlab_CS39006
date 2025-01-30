@@ -1,0 +1,10 @@
+For example in a typical server setup the socket function is called to create a TCP socket descriptor which is stored in the sockfd The bind function is then used to associate the socket with a specific address and port The listen function is used to put the socket into a listening state allowing it to accept incoming connections Finally the accept function is used to accept a connection request from a client which returns a new sockfd for the accepted connection
+
+A sockfd file descriptor is an integer that uniquely identifies a socket within a process This descriptor is used to perform operations on the socket such as reading from or writing to it When creating a server the socket function is called to initialize a sockfd This descriptor is then used with other functions like bind listen and accept to set up the server and manage incoming connections
+
+The sockfd is crucial for managing communication over the network and is treated similarly to other file descriptors in Unix like systems allowing operations like read and write to be used on sockets as well
+
+HELLO
+ABC
+CSE
+IIT Kharagpur
