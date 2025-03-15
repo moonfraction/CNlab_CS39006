@@ -9,12 +9,18 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <semaphore.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+#include <time.h>
 
 #define MAX_TASKS 100
 #define MAX_TASK_LENGTH 50
 #define PORT 8080
 #define BACKLOG 10
 #define BUFFER_SIZE 256
+#define SEM_KEY 12345
 
 // Task structure
 typedef struct {
@@ -22,12 +28,57 @@ typedef struct {
     int assigned;
     int completed;
     pid_t assigned_to;
+    time_t assignment_time;  // Time when the task was assigned
 } Task;
 
 // Global variables
-Task task_queue[MAX_TASKS];
+Task *task_queue;  // Will be in shared memory
 int task_count = 0;
 int server_fd;
+int shm_id;        // Shared memory ID
+int sem_id;        // Semaphore ID
+
+// Define semaphore operations
+struct sembuf sem_lock = {0, -1, SEM_UNDO};   // Lock operation
+struct sembuf sem_unlock = {0, 1, SEM_UNDO};  // Unlock operation
+
+// Function to lock the semaphore
+void lock_queue() {
+    if (semop(sem_id, &sem_lock, 1) == -1) {
+        perror("semop lock failed");
+        exit(1);
+    }
+}
+
+// Function to unlock the semaphore
+void unlock_queue() {
+    if (semop(sem_id, &sem_unlock, 1) == -1) {
+        perror("semop unlock failed");
+        exit(1);
+    }
+}
+
+// Function to check for task timeouts (for tasks that were assigned but not completed)
+void check_task_timeouts() {
+    time_t current_time = time(NULL);
+    const int TIMEOUT_SECONDS = 30;  // Timeout after 30 seconds of inactivity
+    
+    lock_queue();
+    
+    for (int i = 0; i < task_count; i++) {
+        if (task_queue[i].assigned && !task_queue[i].completed) {
+            // Check if the task has timed out
+            if (current_time - task_queue[i].assignment_time > TIMEOUT_SECONDS) {
+                printf("Task '%s' timed out for client %d, putting back in queue\n", 
+                       task_queue[i].task, task_queue[i].assigned_to);
+                task_queue[i].assigned = 0;
+                task_queue[i].assigned_to = 0;
+            }
+        }
+    }
+    
+    unlock_queue();
+}
 
 // Function to handle zombie processes
 void sigchld_handler(int sig) {
@@ -40,6 +91,7 @@ void sigchld_handler(int sig) {
         printf("Child process %d terminated\n", pid);
         
         // Mark task as unassigned if the process terminated without completing
+        lock_queue();
         for (int i = 0; i < task_count; i++) {
             if (task_queue[i].assigned && task_queue[i].assigned_to == pid && !task_queue[i].completed) {
                 task_queue[i].assigned = 0;
@@ -47,6 +99,7 @@ void sigchld_handler(int sig) {
                 printf("Task '%s' is back in the queue\n", task_queue[i].task);
             }
         }
+        unlock_queue();
     }
     
     errno = saved_errno;
@@ -61,20 +114,25 @@ int load_tasks(const char *filename) {
     }
     
     char line[MAX_TASK_LENGTH];
-    while (fgets(line, sizeof(line), file) && task_count < MAX_TASKS) {
+    int local_count = 0;
+    
+    // Read all tasks from file
+    while (fgets(line, sizeof(line), file) && local_count < MAX_TASKS) {
         // Remove newline character
         size_t len = strlen(line);
         if (len > 0 && line[len-1] == '\n') {
             line[len-1] = '\0';
         }
         
-        strcpy(task_queue[task_count].task, line);
-        task_queue[task_count].assigned = 0;
-        task_queue[task_count].completed = 0;
-        task_queue[task_count].assigned_to = 0;
-        task_count++;
+        strcpy(task_queue[local_count].task, line);
+        task_queue[local_count].assigned = 0;
+        task_queue[local_count].completed = 0;
+        task_queue[local_count].assigned_to = 0;
+        task_queue[local_count].assignment_time = 0;
+        local_count++;
     }
     
+    task_count = local_count;
     fclose(file);
     printf("Loaded %d tasks\n", task_count);
     return 0;
@@ -118,6 +176,18 @@ void handle_client(int client_fd, pid_t child_pid) {
         } else if (n == 0) {
             // Client closed connection
             printf("Client disconnected\n");
+            
+            // Release any task assigned to this client
+            lock_queue();
+            for (int i = 0; i < task_count; i++) {
+                if (task_queue[i].assigned && task_queue[i].assigned_to == child_pid && !task_queue[i].completed) {
+                    task_queue[i].assigned = 0;
+                    task_queue[i].assigned_to = 0;
+                    printf("Client %d disconnected, task '%s' is back in the queue\n", 
+                           child_pid, task_queue[i].task);
+                }
+            }
+            unlock_queue();
             break;
         }
         
@@ -129,6 +199,8 @@ void handle_client(int client_fd, pid_t child_pid) {
         if (strncmp(buffer, "GET_TASK", 8) == 0) {
             // Check if client already has a task
             int has_pending_task = 0;
+            
+            lock_queue();
             for (int i = 0; i < task_count; i++) {
                 if (task_queue[i].assigned && task_queue[i].assigned_to == child_pid && !task_queue[i].completed) {
                     has_pending_task = 1;
@@ -142,6 +214,7 @@ void handle_client(int client_fd, pid_t child_pid) {
                 sprintf(response, "Task: %s", task_queue[task_index].task);
                 write(client_fd, response, strlen(response));
                 printf("Re-sent task to client %d: %s\n", child_pid, response);
+                unlock_queue();
             } else {
                 // Find new task for client
                 task_index = get_next_task_index();
@@ -149,6 +222,7 @@ void handle_client(int client_fd, pid_t child_pid) {
                 if (task_index >= 0) {
                     task_queue[task_index].assigned = 1;
                     task_queue[task_index].assigned_to = child_pid;
+                    task_queue[task_index].assignment_time = time(NULL);
                     
                     char response[BUFFER_SIZE];
                     sprintf(response, "Task: %s", task_queue[task_index].task);
@@ -159,9 +233,19 @@ void handle_client(int client_fd, pid_t child_pid) {
                     write(client_fd, "No tasks available", 17);
                     printf("No tasks available for client %d\n", child_pid);
                 }
+                unlock_queue();
             }
         } else if (strncmp(buffer, "RESULT ", 7) == 0) {
             // Process result
+            lock_queue();
+            // Find the task assigned to this client
+            for (int i = 0; i < task_count; i++) {
+                if (task_queue[i].assigned && task_queue[i].assigned_to == child_pid && !task_queue[i].completed) {
+                    task_index = i;
+                    break;
+                }
+            }
+            
             if (task_index >= 0) {
                 task_queue[task_index].completed = 1;
                 printf("Task completed by client %d: %s = %s\n", 
@@ -180,10 +264,26 @@ void handle_client(int client_fd, pid_t child_pid) {
                     printf("All tasks completed!\n");
                 }
             }
+            unlock_queue();
         } else if (strncmp(buffer, "exit", 4) == 0) {
             printf("Client %d requested to exit\n", child_pid);
+            
+            // Release any task assigned to this client
+            lock_queue();
+            for (int i = 0; i < task_count; i++) {
+                if (task_queue[i].assigned && task_queue[i].assigned_to == child_pid && !task_queue[i].completed) {
+                    task_queue[i].assigned = 0;
+                    task_queue[i].assigned_to = 0;
+                    printf("Client %d exited, task '%s' is back in the queue\n", 
+                           child_pid, task_queue[i].task);
+                }
+            }
+            unlock_queue();
             break;
         }
+        
+        // Periodically check for timed-out tasks
+        check_task_timeouts();
     }
     
     close(client_fd);
@@ -193,6 +293,33 @@ void handle_client(int client_fd, pid_t child_pid) {
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <task_file>\n", argv[0]);
+        return 1;
+    }
+    
+    // Create shared memory segment for tasks
+    shm_id = shmget(IPC_PRIVATE, sizeof(Task) * MAX_TASKS, IPC_CREAT | 0666);
+    if (shm_id < 0) {
+        perror("shmget failed");
+        return 1;
+    }
+    
+    // Attach shared memory segment
+    task_queue = (Task *) shmat(shm_id, NULL, 0);
+    if (task_queue == (Task *) -1) {
+        perror("shmat failed");
+        return 1;
+    }
+    
+    // Create semaphore
+    sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666);
+    if (sem_id < 0) {
+        perror("semget failed");
+        return 1;
+    }
+    
+    // Initialize semaphore to 1 (unlocked)
+    if (semctl(sem_id, 0, SETVAL, 1) == -1) {
+        perror("semctl failed");
         return 1;
     }
     
@@ -253,6 +380,9 @@ int main(int argc, char *argv[]) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         
+        // Check for timed-out tasks in the main thread
+        check_task_timeouts();
+        
         // Accept client connection (non-blocking)
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
         
@@ -287,6 +417,11 @@ int main(int argc, char *argv[]) {
         }
     }
     
+    // Clean up resources (this part will not be reached in normal operation)
     close(server_fd);
+    shmdt(task_queue);
+    shmctl(shm_id, IPC_RMID, NULL);
+    semctl(sem_id, 0, IPC_RMID);
+    
     return 0;
 }
