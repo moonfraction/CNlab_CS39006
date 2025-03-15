@@ -39,8 +39,8 @@ int shm_id;        // Shared memory ID
 int sem_id;        // Semaphore ID
 
 // Define semaphore operations
-struct sembuf sem_lock = {0, -1, SEM_UNDO};   // Lock operation
-struct sembuf sem_unlock = {0, 1, SEM_UNDO};  // Unlock operation
+struct sembuf sem_lock = {0, -1, 0};   // Lock operation
+struct sembuf sem_unlock = {0, 1, 0};  // Unlock operation
 
 // Function to lock the semaphore
 void lock_queue() {
@@ -161,8 +161,8 @@ void handle_client(int client_fd, pid_t child_pid) {
         // Clear buffer
         memset(buffer, 0, BUFFER_SIZE);
         
-        // Try to read from client
-        int n = read(client_fd, buffer, BUFFER_SIZE - 1);
+        // Try to read from client using recv()
+        int n = recv(client_fd, buffer, BUFFER_SIZE - 1, 0);
         
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -212,7 +212,14 @@ void handle_client(int client_fd, pid_t child_pid) {
             if (has_pending_task) {
                 char response[BUFFER_SIZE];
                 sprintf(response, "Task: %s", task_queue[task_index].task);
-                write(client_fd, response, strlen(response));
+                
+                // Send response using send()
+                if (send(client_fd, response, strlen(response), 0) < 0) {
+                    perror("Send failed");
+                    unlock_queue();
+                    break;
+                }
+                
                 printf("Re-sent task to client %d: %s\n", child_pid, response);
                 unlock_queue();
             } else {
@@ -226,11 +233,22 @@ void handle_client(int client_fd, pid_t child_pid) {
                     
                     char response[BUFFER_SIZE];
                     sprintf(response, "Task: %s", task_queue[task_index].task);
-                    write(client_fd, response, strlen(response));
+                    
+                    // Send response using send()
+                    if (send(client_fd, response, strlen(response), 0) < 0) {
+                        perror("Send failed");
+                        unlock_queue();
+                        break;
+                    }
+                    
                     printf("Sent task to client %d: %s\n", child_pid, response);
                 } else {
                     // No tasks available
-                    write(client_fd, "No tasks available", 17);
+                    if (send(client_fd, "No tasks available", 18, 0) < 0) {
+                        perror("Send failed");
+                        unlock_queue();
+                        break;
+                    }
                     printf("No tasks available for client %d\n", child_pid);
                 }
                 unlock_queue();

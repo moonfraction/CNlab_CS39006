@@ -81,7 +81,13 @@ int main() {
             // Request a task
             memset(buffer, 0, BUFFER_SIZE);
             strcpy(buffer, "GET_TASK");
-            write(sock, buffer, strlen(buffer));
+            
+            // Send request using send()
+            if (send(sock, buffer, strlen(buffer), 0) < 0) {
+                perror("Send failed");
+                break;
+            }
+            
             printf("Requested a task from the server\n");
             waiting_for_task = 1;
             sleep(1); // Give server time to respond
@@ -90,8 +96,8 @@ int main() {
         // Clear buffer for server response
         memset(buffer, 0, BUFFER_SIZE);
         
-        // Read server response
-        int n = read(sock, buffer, BUFFER_SIZE - 1);
+        // Read server response using recv()
+        int n = recv(sock, buffer, BUFFER_SIZE - 1, 0);
         
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -99,7 +105,7 @@ int main() {
                 usleep(500000); // 500ms
                 continue;
             } else {
-                perror("Read error");
+                perror("Receive error");
                 break;
             }
         } else if (n == 0) {
@@ -124,16 +130,27 @@ int main() {
             // Send result back to server
             memset(buffer, 0, BUFFER_SIZE);
             sprintf(buffer, "RESULT %d", result);
-            write(sock, buffer, strlen(buffer));
+            
+            // Send result using send()
+            if (send(sock, buffer, strlen(buffer), 0) < 0) {
+                perror("Send failed");
+                break;
+            }
             
             waiting_for_task = 0;
             sleep(1); // Pause before requesting the next task
-        } else if (strncmp(buffer, "No tasks available", 17) == 0) {
+        } else if (strncmp(buffer, "No tasks available", 18) == 0) {
             printf("No more tasks available, exiting...\n");
             // Send exit message
             memset(buffer, 0, BUFFER_SIZE);
             strcpy(buffer, "exit");
-            write(sock, buffer, strlen(buffer));
+            
+            // Send exit message using send()
+            if (send(sock, buffer, strlen(buffer), 0) < 0) {
+                perror("Send failed");
+                break;
+            }
+            
             active = 0;
         }
     }
