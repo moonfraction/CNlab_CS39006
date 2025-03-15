@@ -125,7 +125,7 @@ int main() {
             
             // Evaluate the expression
             int result = evaluate_expression(task);
-            printf("=== Result: %d\n", result);
+            printf("<== Result: %d\n", result);
             
             // Send result back to server
             memset(buffer, 0, BUFFER_SIZE);
