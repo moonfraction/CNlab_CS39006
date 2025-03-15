@@ -21,6 +21,7 @@
 #define BACKLOG 10
 #define BUFFER_SIZE 256
 #define SEM_KEY 12345
+#define CTRL_SHM_KEY 56789
 
 // Task structure
 typedef struct {
@@ -31,12 +32,20 @@ typedef struct {
     time_t assignment_time;  // Time when the task was assigned
 } Task;
 
+// Control structure (stored in separate shared memory segment)
+typedef struct {
+    int all_tasks_completed;
+    int active_clients;  // Track the number of connected clients
+} ServerControl;
+
 // Global variables
-Task *task_queue;  // Will be in shared memory
+Task *task_queue;         // Will be in shared memory
+ServerControl *control;   // Control structure in shared memory
 int task_count = 0;
 int server_fd;
-int shm_id;        // Shared memory ID
-int sem_id;        // Semaphore ID
+int shm_id;              // Shared memory ID for tasks
+int ctrl_shm_id;         // Shared memory ID for control struct
+int sem_id;              // Semaphore ID
 
 // Define semaphore operations
 struct sembuf sem_lock = {0, -1, 0};   // Lock operation
@@ -45,7 +54,7 @@ struct sembuf sem_unlock = {0, 1, 0};  // Unlock operation
 // Function to lock the semaphore
 void lock_queue() {
     if (semop(sem_id, &sem_lock, 1) == -1) {
-        perror("semop lock failed");
+        perror("### semop lock failed");
         exit(1);
     }
 }
@@ -53,9 +62,19 @@ void lock_queue() {
 // Function to unlock the semaphore
 void unlock_queue() {
     if (semop(sem_id, &sem_unlock, 1) == -1) {
-        perror("semop unlock failed");
+        perror("### semop unlock failed");
         exit(1);
     }
+}
+
+// Function to check if all tasks are completed
+int check_all_completed() {
+    for (int i = 0; i < task_count; i++) {
+        if (!task_queue[i].completed) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 // Function to check for task timeouts (for tasks that were assigned but not completed)
@@ -69,7 +88,7 @@ void check_task_timeouts() {
         if (task_queue[i].assigned && !task_queue[i].completed) {
             // Check if the task has timed out
             if (current_time - task_queue[i].assignment_time > TIMEOUT_SECONDS) {
-                printf("Task '%s' timed out for client %d, putting back in queue\n", 
+                printf("*** Task '%s' timed out for client %d, putting back in queue\n", 
                        task_queue[i].task, task_queue[i].assigned_to);
                 task_queue[i].assigned = 0;
                 task_queue[i].assigned_to = 0;
@@ -90,8 +109,12 @@ void sigchld_handler(int sig) {
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         printf("Child process %d terminated\n", pid);
         
-        // Mark task as unassigned if the process terminated without completing
+        // Decrement active clients count
         lock_queue();
+        control->active_clients--;
+        printf("Active clients: %d\n", control->active_clients);
+        
+        // Mark task as unassigned if the process terminated without completing
         for (int i = 0; i < task_count; i++) {
             if (task_queue[i].assigned && task_queue[i].assigned_to == pid && !task_queue[i].completed) {
                 task_queue[i].assigned = 0;
@@ -134,7 +157,7 @@ int load_tasks(const char *filename) {
     
     task_count = local_count;
     fclose(file);
-    printf("Loaded %d tasks\n", task_count);
+    printf(">>> Loaded %d tasks\n", task_count);
     return 0;
 }
 
@@ -270,16 +293,12 @@ void handle_client(int client_fd, pid_t child_pid) {
                        child_pid, task_queue[task_index].task, buffer + 7);
                 
                 // Check if all tasks are completed
-                int all_completed = 1;
-                for (int i = 0; i < task_count; i++) {
-                    if (!task_queue[i].completed) {
-                        all_completed = 0;
-                        break;
-                    }
-                }
+                int all_completed = check_all_completed();
                 
                 if (all_completed) {
                     printf("All tasks completed!\n");
+                    // Set the flag for the main server process to terminate
+                    control->all_tasks_completed = 1;
                 }
             }
             unlock_queue();
@@ -308,41 +327,89 @@ void handle_client(int client_fd, pid_t child_pid) {
     exit(0);
 }
 
+// Function to terminate all child processes
+void terminate_all_children() {
+    printf("--- Terminating all child processes...\n");
+    
+    // Use killpg to send SIGTERM to the entire process group
+    // This assumes that the server is the process group leader
+    kill(0, SIGTERM);
+    
+    // Wait for a moment to give processes time to terminate
+    sleep(1);
+    
+    // Force kill any remaining processes
+    kill(0, SIGKILL);
+}
+
+// Signal handler for graceful termination
+void termination_handler(int sig) {
+    printf("Received termination signal. Cleaning up...\n");
+    
+    // Clean up resources
+    close(server_fd);
+    shmdt(task_queue);
+    shmdt(control);
+    shmctl(shm_id, IPC_RMID, NULL);
+    shmctl(ctrl_shm_id, IPC_RMID, NULL);
+    semctl(sem_id, 0, IPC_RMID);
+    
+    exit(0);
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <task_file>\n", argv[0]);
         return 1;
     }
     
-    // Create shared memory segment for tasks
+    // shm segment for tasks
     shm_id = shmget(IPC_PRIVATE, sizeof(Task) * MAX_TASKS, IPC_CREAT | 0666);
     if (shm_id < 0) {
-        perror("shmget failed");
+        perror("### shmget failed for task queue");
         return 1;
     }
     
-    // Attach shared memory segment
+    // shm segment for control structure
+    ctrl_shm_id = shmget(CTRL_SHM_KEY, sizeof(ServerControl), IPC_CREAT | 0666);
+    if (ctrl_shm_id < 0) {
+        perror("### shmget failed for control structure");
+        return 1;
+    }
+    
+    // Attach shm segments
     task_queue = (Task *) shmat(shm_id, NULL, 0);
     if (task_queue == (Task *) -1) {
-        perror("shmat failed");
+        perror("### shmat failed for task queue");
         return 1;
     }
     
-    // Create semaphore
+    control = (ServerControl *) shmat(ctrl_shm_id, NULL, 0);
+    if (control == (ServerControl *) -1) {
+        perror("### shmat failed for control structure");
+        return 1;
+    }
+    
+    // Initialize control structure
+    control->all_tasks_completed = 0;
+    control->active_clients = 0;
+    
+    // semaphore for task queue
     sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666);
     if (sem_id < 0) {
-        perror("semget failed");
+        perror("### semget failed");
         return 1;
     }
     
     // Initialize semaphore to 1 (unlocked)
     if (semctl(sem_id, 0, SETVAL, 1) == -1) {
-        perror("semctl failed");
+        perror("### semctl failed");
         return 1;
     }
     
     // Load tasks from file
     if (load_tasks(argv[1]) < 0) {
+        perror("### Error loading tasks");
         return 1;
     }
     
@@ -352,25 +419,39 @@ int main(int argc, char *argv[]) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        perror("sigaction");
+        perror("sigaction for SIGCHLD");
+        return 1;
+    }
+    
+    // Set up signal handlers for termination
+    struct sigaction term_sa;
+    term_sa.sa_handler = termination_handler;
+    sigemptyset(&term_sa.sa_mask);
+    term_sa.sa_flags = 0;
+    if (sigaction(SIGINT, &term_sa, NULL) == -1) {
+        perror("sigaction for SIGINT");
+        return 1;
+    }
+    if (sigaction(SIGTERM, &term_sa, NULL) == -1) {
+        perror("sigaction for SIGTERM");
         return 1;
     }
     
     // Create socket
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        perror("Socket creation failed");
+        perror("### Socket creation failed");
         return 1;
     }
     
     // Set socket options
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        perror("Setsockopt failed");
+        perror("### Setsockopt failed");
         return 1;
     }
     
-    // Make server socket non-blocking
+    /* Make server socket non-blocking */
     int flags = fcntl(server_fd, F_GETFL, 0);
     fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
     
@@ -382,17 +463,17 @@ int main(int argc, char *argv[]) {
     
     // Bind socket
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        perror("Bind failed");
+        perror("### Bind failed");
         return 1;
     }
     
     // Listen for connections
     if (listen(server_fd, BACKLOG) < 0) {
-        perror("Listen failed");
+        perror("### Listen failed");
         return 1;
     }
     
-    printf("Task Queue Server started on port %d\n", PORT);
+    printf("+-+ Task Queue Server started on port %d\n", PORT);
     
     while (1) {
         struct sockaddr_in client_addr;
@@ -400,6 +481,12 @@ int main(int argc, char *argv[]) {
         
         // Check for timed-out tasks in the main thread
         check_task_timeouts();
+        
+        // Check if all tasks are completed and there are no active clients
+        if (control->all_tasks_completed && control->active_clients == 0) {
+            printf("!!! All tasks completed and no active clients. Shutting down...\n");
+            break;  // Exit the main server loop
+        }
         
         // Accept client connection (non-blocking)
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
@@ -410,19 +497,30 @@ int main(int argc, char *argv[]) {
                 usleep(100000); // 100ms
                 continue;
             } else {
-                perror("Accept failed");
+                perror("### Accept failed");
                 continue;
             }
         }
         
-        printf("New client connected\n");
+        printf("+++ New client connected\n");
+        
+        // Increment the active clients counter
+        lock_queue();
+        control->active_clients++;
+        printf("~~~ Active clients: %d\n", control->active_clients);
+        unlock_queue();
         
         // Fork a child process to handle the client
         pid_t child_pid = fork();
         
         if (child_pid < 0) {
-            perror("Fork failed");
+            perror("### Fork failed");
             close(client_fd);
+            
+            // Decrement the active clients counter on failure
+            lock_queue();
+            control->active_clients--;
+            unlock_queue();
         } else if (child_pid == 0) {
             // Child process - handle client
             close(server_fd); // Close server socket in child
@@ -431,15 +529,22 @@ int main(int argc, char *argv[]) {
         } else {
             // Parent process - continue accepting connections
             close(client_fd); // Close client socket in parent
-            printf("Spawned child process %d for client\n", child_pid);
+            printf("++> Forked child process %d for client\n", child_pid);
         }
     }
     
-    // Clean up resources (this part will not be reached in normal operation)
+    // Send termination signal to all child processes
+    terminate_all_children();
+    
+    // Clean up resources
+    printf("!!! Server shutting down... Cleaning up resources\n");
     close(server_fd);
     shmdt(task_queue);
+    shmdt(control);
     shmctl(shm_id, IPC_RMID, NULL);
+    shmctl(ctrl_shm_id, IPC_RMID, NULL);
     semctl(sem_id, 0, IPC_RMID);
     
+    printf("$$$ Server terminated successfully $$$\n");
     return 0;
 }

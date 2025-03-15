@@ -47,7 +47,7 @@ int main() {
     
     // Create socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation failed");
+        perror("### Socket creation failed");
         return 1;
     }
     
@@ -57,19 +57,19 @@ int main() {
     
     // Convert IP address from string to binary
     if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
-        perror("Invalid address/Address not supported");
+        perror("### Invalid address/Address not supported");
         return 1;
     }
     
     // Connect to server
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("Connection failed");
+        perror("### Connection failed");
         return 1;
     }
     
-    printf("Connected to the Task Queue Server\n");
+    printf("+++ Connected to the Task Queue Server\n");
     
-    // Make socket non-blocking
+    /* Make socket non-blocking */
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
     
@@ -82,13 +82,13 @@ int main() {
             memset(buffer, 0, BUFFER_SIZE);
             strcpy(buffer, "GET_TASK");
             
-            // Send request using send()
+            // Send request to get task
             if (send(sock, buffer, strlen(buffer), 0) < 0) {
-                perror("Send failed");
+                perror("### Send failed");
                 break;
             }
             
-            printf("Requested a task from the server\n");
+            printf("<-- Requested a task from the server\n");
             waiting_for_task = 1;
             sleep(1); // Give server time to respond
         }
@@ -96,7 +96,7 @@ int main() {
         // Clear buffer for server response
         memset(buffer, 0, BUFFER_SIZE);
         
-        // Read server response using recv()
+        // Read server response.. the task or exit message
         int n = recv(sock, buffer, BUFFER_SIZE - 1, 0);
         
         if (n < 0) {
@@ -105,27 +105,27 @@ int main() {
                 usleep(500000); // 500ms
                 continue;
             } else {
-                perror("Receive error");
+                perror("### Receive error");
                 break;
             }
         } else if (n == 0) {
             // Server closed connection
-            printf("Server disconnected\n");
+            printf("^^^ Server disconnected\n");
             break;
         }
         
         buffer[n] = '\0';
-        printf("Server response: %s\n", buffer);
+        printf("--> Server response: %s\n", buffer);
         
         // Process server response
         if (strncmp(buffer, "Task:", 5) == 0) {
-            // Extract the task (skip "Task: ")
+            // Extract the task (after "Task: ")
             char *task = buffer + 6;
-            printf("Processing task: %s\n", task);
+            printf("~~~ Processing task: %s\n", task);
             
             // Evaluate the expression
             int result = evaluate_expression(task);
-            printf("Result: %d\n", result);
+            printf("=== Result: %d\n", result);
             
             // Send result back to server
             memset(buffer, 0, BUFFER_SIZE);
@@ -133,28 +133,30 @@ int main() {
             
             // Send result using send()
             if (send(sock, buffer, strlen(buffer), 0) < 0) {
-                perror("Send failed");
+                perror("### Send failed");
                 break;
             }
             
             waiting_for_task = 0;
             sleep(1); // Pause before requesting the next task
         } else if (strncmp(buffer, "No tasks available", 18) == 0) {
-            printf("No more tasks available, exiting...\n");
+            printf("!!! No more tasks available, exiting...\n");
             // Send exit message
             memset(buffer, 0, BUFFER_SIZE);
             strcpy(buffer, "exit");
             
             // Send exit message using send()
             if (send(sock, buffer, strlen(buffer), 0) < 0) {
-                perror("Send failed");
+                perror("### Send failed");
                 break;
             }
             
             active = 0;
         }
     }
-    
+
+    // Close socket
     close(sock);
+    printf("$$$ Disconnected from the Task Queue Server $$$\n");
     return 0;
 }
