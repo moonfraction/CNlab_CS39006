@@ -107,23 +107,26 @@ void sigchld_handler(int sig) {
     
     // Collect all dead child processes
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        printf("Child process %d terminated\n", pid);
+        printf("--- Child [%d]: process terminated\n", pid);
         
         // Decrement active clients count
         lock_queue();
         control->active_clients--;
-        printf("Active clients: %d\n", control->active_clients);
+        printf("~~~ Active clients: %d\n", control->active_clients);
         
         // Mark task as unassigned if the process terminated without completing
         for (int i = 0; i < task_count; i++) {
             if (task_queue[i].assigned && task_queue[i].assigned_to == pid && !task_queue[i].completed) {
                 task_queue[i].assigned = 0;
                 task_queue[i].assigned_to = 0;
-                printf("Task '%s' is back in the queue\n", task_queue[i].task);
+                printf("*** Task '%s' is back in the queue\n", task_queue[i].task);
             }
         }
         unlock_queue();
     }
+    
+    // Re-establish the signal handler for SIGCHLD
+    signal(SIGCHLD, sigchld_handler);
     
     errno = saved_errno;
 }
@@ -132,7 +135,7 @@ void sigchld_handler(int sig) {
 int load_tasks(const char *filename) {
     FILE *file = fopen(filename, "r");
     if (!file) {
-        perror("Error opening task file");
+        perror("### Error opening task file");
         return -1;
     }
     
@@ -176,7 +179,7 @@ void handle_client(int client_fd, pid_t child_pid) {
     char buffer[BUFFER_SIZE];
     int task_index = -1;
     
-    // Make socket non-blocking
+    /* Make socket non-blocking */
     int flags = fcntl(client_fd, F_GETFL, 0);
     fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
     
@@ -193,12 +196,12 @@ void handle_client(int client_fd, pid_t child_pid) {
                 sleep(1);
                 continue;
             } else {
-                perror("Error reading from socket");
+                perror("### Error reading from socket");
                 break;
             }
         } else if (n == 0) {
             // Client closed connection
-            printf("Client disconnected\n");
+            printf("^^^ Client disconnected\n");
             
             // Release any task assigned to this client
             lock_queue();
@@ -206,7 +209,7 @@ void handle_client(int client_fd, pid_t child_pid) {
                 if (task_queue[i].assigned && task_queue[i].assigned_to == child_pid && !task_queue[i].completed) {
                     task_queue[i].assigned = 0;
                     task_queue[i].assigned_to = 0;
-                    printf("Client %d disconnected, task '%s' is back in the queue\n", 
+                    printf("*** Client [%d]: disconnected, task '%s' is back in the queue\n", 
                            child_pid, task_queue[i].task);
                 }
             }
@@ -216,7 +219,7 @@ void handle_client(int client_fd, pid_t child_pid) {
         
         // Process client message
         buffer[n] = '\0';
-        printf("Client %d: %s\n", child_pid, buffer);
+        printf("--> Client [%d]: %s\n", child_pid, buffer);
         
         // Handle client request
         if (strncmp(buffer, "GET_TASK", 8) == 0) {
@@ -238,12 +241,12 @@ void handle_client(int client_fd, pid_t child_pid) {
                 
                 // Send response using send()
                 if (send(client_fd, response, strlen(response), 0) < 0) {
-                    perror("Send failed");
+                    perror("### Send failed");
                     unlock_queue();
                     break;
                 }
                 
-                printf("Re-sent task to client %d: %s\n", child_pid, response);
+                printf("<-- Client [%d]: Re-sent %s\n", child_pid, response);
                 unlock_queue();
             } else {
                 // Find new task for client
@@ -259,20 +262,20 @@ void handle_client(int client_fd, pid_t child_pid) {
                     
                     // Send response using send()
                     if (send(client_fd, response, strlen(response), 0) < 0) {
-                        perror("Send failed");
+                        perror("### Send failed");
                         unlock_queue();
                         break;
                     }
                     
-                    printf("Sent task to client %d: %s\n", child_pid, response);
+                    printf("<-- Client [%d]: Sent %s\n", child_pid, response);
                 } else {
                     // No tasks available
                     if (send(client_fd, "No tasks available", 18, 0) < 0) {
-                        perror("Send failed");
+                        perror("### Send failed");
                         unlock_queue();
                         break;
                     }
-                    printf("No tasks available for client %d\n", child_pid);
+                    printf("<-- (^_^) No tasks available for client [%d]\n", child_pid);
                 }
                 unlock_queue();
             }
@@ -289,21 +292,21 @@ void handle_client(int client_fd, pid_t child_pid) {
             
             if (task_index >= 0) {
                 task_queue[task_index].completed = 1;
-                printf("Task completed by client %d: %s = %s\n", 
+                printf("=== Client [%d]: Task completed: %s = %s\n", 
                        child_pid, task_queue[task_index].task, buffer + 7);
                 
                 // Check if all tasks are completed
                 int all_completed = check_all_completed();
                 
                 if (all_completed) {
-                    printf("All tasks completed!\n");
+                    printf(";D All tasks completed!\n");
                     // Set the flag for the main server process to terminate
                     control->all_tasks_completed = 1;
                 }
             }
             unlock_queue();
         } else if (strncmp(buffer, "exit", 4) == 0) {
-            printf("Client %d requested to exit\n", child_pid);
+            printf("--> Client [%d]: requested to exit\n", child_pid);
             
             // Release any task assigned to this client
             lock_queue();
@@ -311,7 +314,7 @@ void handle_client(int client_fd, pid_t child_pid) {
                 if (task_queue[i].assigned && task_queue[i].assigned_to == child_pid && !task_queue[i].completed) {
                     task_queue[i].assigned = 0;
                     task_queue[i].assigned_to = 0;
-                    printf("Client %d exited, task '%s' is back in the queue\n", 
+                    printf("*** Client [%d]: exited, task '%s' is back in the queue\n", 
                            child_pid, task_queue[i].task);
                 }
             }
@@ -329,22 +332,21 @@ void handle_client(int client_fd, pid_t child_pid) {
 
 // Function to terminate all child processes
 void terminate_all_children() {
-    printf("--- Terminating all child processes...\n");
+    printf("--- Terminating all child processes with SIGKILL...\n");
     
-    // Use killpg to send SIGTERM to the entire process group
-    // This assumes that the server is the process group leader
+    // First try to terminate gracefully with SIGTERM
     kill(0, SIGTERM);
     
     // Wait for a moment to give processes time to terminate
     sleep(1);
     
-    // Force kill any remaining processes
+    // Force kill any remaining processes with SIGKILL
     kill(0, SIGKILL);
 }
 
 // Signal handler for graceful termination
 void termination_handler(int sig) {
-    printf("Received termination signal. Cleaning up...\n");
+    // printf("!!! Received termination signal %d. Cleaning up...\n", sig);
     
     // Clean up resources
     close(server_fd);
@@ -354,6 +356,7 @@ void termination_handler(int sig) {
     shmctl(ctrl_shm_id, IPC_RMID, NULL);
     semctl(sem_id, 0, IPC_RMID);
     
+    printf("$$$ Server terminated successfully $$$\n");
     exit(0);
 }
 
@@ -413,27 +416,19 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    // Set up signal handler for child processes
-    struct sigaction sa;
-    sa.sa_handler = sigchld_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        perror("sigaction for SIGCHLD");
+    // Set up signal handlers using signal() instead of sigaction()
+    if (signal(SIGCHLD, sigchld_handler) == SIG_ERR) {
+        perror("### signal for SIGCHLD");
         return 1;
     }
     
-    // Set up signal handlers for termination
-    struct sigaction term_sa;
-    term_sa.sa_handler = termination_handler;
-    sigemptyset(&term_sa.sa_mask);
-    term_sa.sa_flags = 0;
-    if (sigaction(SIGINT, &term_sa, NULL) == -1) {
-        perror("sigaction for SIGINT");
+    if (signal(SIGINT, termination_handler) == SIG_ERR) {
+        perror("### signal for SIGINT");
         return 1;
     }
-    if (sigaction(SIGTERM, &term_sa, NULL) == -1) {
-        perror("sigaction for SIGTERM");
+    
+    if (signal(SIGTERM, termination_handler) == SIG_ERR) {
+        perror("### signal for SIGTERM");
         return 1;
     }
     
@@ -529,22 +524,13 @@ int main(int argc, char *argv[]) {
         } else {
             // Parent process - continue accepting connections
             close(client_fd); // Close client socket in parent
-            printf("++> Forked child process %d for client\n", child_pid);
+            printf("++> Forked child process [%d] for client\n", child_pid);
         }
     }
     
-    // Send termination signal to all child processes
-    terminate_all_children();
-    
-    // Clean up resources
-    printf("!!! Server shutting down... Cleaning up resources\n");
-    close(server_fd);
-    shmdt(task_queue);
-    shmdt(control);
-    shmctl(shm_id, IPC_RMID, NULL);
-    shmctl(ctrl_shm_id, IPC_RMID, NULL);
-    semctl(sem_id, 0, IPC_RMID);
-    
-    printf("$$$ Server terminated successfully $$$\n");
+    // Send termination signal to all child processes using SIGKILL
+    terminate_all_children(); //and cleanup
+
+
     return 0;
 }
