@@ -1,3 +1,10 @@
+/*=====================================
+Assignment 5 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+=====================================*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -178,12 +185,20 @@ int get_next_task_index() {
 void handle_client(int client_fd, pid_t child_pid) {
     char buffer[BUFFER_SIZE];
     int task_index = -1;
+    time_t last_activity = time(NULL);
+    const int CLIENT_IDLE_TIMEOUT = 60;  // Disconnect client after 60 seconds of inactivity
     
     /* Make socket non-blocking */
     int flags = fcntl(client_fd, F_GETFL, 0);
     fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
     
     while (1) {
+        // check idleness
+        if(time(NULL) - last_activity > CLIENT_IDLE_TIMEOUT) {
+            printf("^^^ Client [%d]: idle timeout\n", child_pid);
+            break;
+        }
+
         // Clear buffer
         memset(buffer, 0, BUFFER_SIZE);
         
@@ -216,6 +231,9 @@ void handle_client(int client_fd, pid_t child_pid) {
             unlock_queue();
             break;
         }
+
+        // successfully read n bytes
+        last_activity = time(NULL);
         
         // Process client message
         buffer[n] = '\0';
