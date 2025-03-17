@@ -4,6 +4,14 @@ Name: Chandransh Singh
 Roll number: 22CS30017
 =====================================*/
 
+/*
+command to compile:
+gcc client.c -o client
+
+to run:
+./client
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

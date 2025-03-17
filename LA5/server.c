@@ -5,6 +5,14 @@ Roll number: 22CS30017
 =====================================*/
 
 
+/*
+command to compile:
+gcc server.c -o server
+
+to run
+./server tasks.txt
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
