@@ -11,7 +11,7 @@
 
 // Function prototypes
 void send_command(int socket, const char *command);
-void receive_response(int socket);
+int receive_response(int socket);
 void handle_data_mode(int socket);
 
 int main(int argc, char *argv[]) {
@@ -53,10 +53,18 @@ int main(int argc, char *argv[]) {
     while (1) {
         memset(buffer, 0, sizeof(buffer));
         printf("> ");
-        fgets(buffer, BUFFER_SIZE, stdin);
+        if (!fgets(buffer, BUFFER_SIZE, stdin)) {
+            printf("Error reading input\n");
+            break;
+        }
         
         // Remove trailing newline
         buffer[strcspn(buffer, "\n")] = 0;
+        
+        // Skip empty commands
+        if (strlen(buffer) == 0) {
+            continue;
+        }
         
         // Check for exit command
         if (strcmp(buffer, "quit") == 0 || strcmp(buffer, "QUIT") == 0) {
@@ -65,13 +73,50 @@ int main(int argc, char *argv[]) {
             break;
         }
         
-        // Check if the command is DATA
+        // Check for different command types
         if (strcmp(buffer, "DATA") == 0) {
             send_command(sock, buffer);
-            receive_response(sock);
-            handle_data_mode(sock);
-        } else {
-            // Send regular command
+            int response_code = receive_response(sock);
+            
+            // Only proceed with data entry if the server accepted DATA command
+            if (response_code == 200) {
+                handle_data_mode(sock);
+            }
+        } 
+        else if (strncmp(buffer, "LIST ", 5) == 0 || strncmp(buffer, "GET_MAIL ", 9) == 0) {
+            // Special handling for LIST and GET_MAIL to receive multi-line responses
+            send_command(sock, buffer);
+            int response_code = receive_response(sock);
+            
+            // If successful, receive additional data
+            if (response_code == 200) {
+                char data_buffer[MAX_EMAIL_SIZE] = {0};
+                int bytes_read = 0;
+                int total_bytes = 0;
+                
+                // Give server a moment to prepare data
+                usleep(100000);  // 100ms
+                
+                // Read all available data
+                while ((bytes_read = recv(sock, data_buffer + total_bytes, 
+                                         sizeof(data_buffer) - total_bytes - 1, MSG_DONTWAIT)) > 0) {
+                    total_bytes += bytes_read;
+                    data_buffer[total_bytes] = '\0';
+                    
+                    // Safety check against buffer overflow
+                    if (total_bytes >= sizeof(data_buffer) - 1) {
+                        break;
+                    }
+                }
+                
+                // If we received any additional data, display it
+                if (total_bytes > 0) {
+                    printf("%s", data_buffer);
+                }
+            }
+        } 
+        else {
+            // Handle regular commands
             send_command(sock, buffer);
             receive_response(sock);
         }
@@ -82,68 +127,67 @@ int main(int argc, char *argv[]) {
 }
 
 void send_command(int socket, const char *command) {
-    send(socket, command, strlen(command), 0);
-    send(socket, "\n", 1, 0); // Send newline
+    char buffer[BUFFER_SIZE];
+    snprintf(buffer, sizeof(buffer), "%s\n", command);
+    
+    if (send(socket, buffer, strlen(buffer), 0) < 0) {
+        perror("Failed to send command");
+        exit(EXIT_FAILURE);
+    }
 }
 
-void receive_response(int socket) {
-    char buffer[BUFFER_SIZE];
-    int bytes_read;
-    
-    // First receive the standard response line
-    memset(buffer, 0, sizeof(buffer));
-    bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
+int receive_response(int socket) {
+    char buffer[BUFFER_SIZE] = {0};
+    int bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
     
     if (bytes_read <= 0) {
-        perror("Server disconnected");
+        perror("Failed to receive server response");
         exit(EXIT_FAILURE);
     }
     
     buffer[bytes_read] = '\0';
     printf("%s", buffer);
     
-    // Check if this is a response that includes more data (like LIST or GET_MAIL)
-    int response_code;
-    if (sscanf(buffer, "%d", &response_code) == 1 && response_code == 200) {
-        // If the command was LIST or GET_MAIL and successful, there might be more data
-        if (strstr(buffer, "OK\n") != NULL) {
-            // Continue receiving until we get all data
-            // This is a simplistic approach and might need improvement for large responses
-            while ((bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0)) > 0) {
-                buffer[bytes_read] = '\0';
-                printf("%s", buffer);
-                
-                // Simple check to see if we've received everything
-                if (bytes_read < (sizeof(buffer) - 1)) {
-                    break;
-                }
-            }
-        }
-    }
+    // Extract response code
+    int response_code = 0;
+    sscanf(buffer, "%d", &response_code);
+    return response_code;
 }
 
 void handle_data_mode(int socket) {
-    char buffer[BUFFER_SIZE];
-    char email_body[MAX_EMAIL_SIZE] = "";
+    char buffer[BUFFER_SIZE] = {0};
+    char email_body[MAX_EMAIL_SIZE] = {0};
     
-    printf("Enter your message (end with a single dot '.'):\n");
+    printf("Enter your message (end with a single dot '.' on a new line):\n");
     
+    // Read message line by line
     while (1) {
-        memset(buffer, 0, sizeof(buffer));
-        fgets(buffer, BUFFER_SIZE, stdin);
+        if (!fgets(buffer, BUFFER_SIZE, stdin)) {
+            printf("Error reading input\n");
+            return;
+        }
         
-        // Check for end of message
-        if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".") == 0) {
-            send_command(socket, ".");
+        // Check for end of message (a single dot on a line)
+        if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".\r\n") == 0 || strcmp(buffer, ".") == 0) {
             break;
         }
         
-        // Add to email body
-        strcat(email_body, buffer);
+        // Append to email body
+        if (strlen(email_body) + strlen(buffer) < MAX_EMAIL_SIZE) {
+            strcat(email_body, buffer);
+        } else {
+            printf("Message too large, truncating\n");
+            break;
+        }
     }
     
     // Send the email body
-    send(socket, email_body, strlen(email_body), 0);
+    if (send(socket, email_body, strlen(email_body), 0) < 0) {
+        perror("Failed to send email body");
+    }
+    
+    // Send the terminating dot
+    send_command(socket, ".");
     
     // Get response
     receive_response(socket);

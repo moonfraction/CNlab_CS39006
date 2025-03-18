@@ -233,7 +233,6 @@ void *handle_client(void *arg) {
 void send_response(int socket, int code, const char *message) {
     char response[BUFFER_SIZE];
     snprintf(response, sizeof(response), "%d %s\n", code, message);
-    send(socket, response, strlen(response), 0);
 }
 
 int store_email(const char *recipient, const char *sender, const char *message) {
