@@ -13,11 +13,9 @@
 void send_command(int socket, const char *command);
 int receive_response(int socket);
 void handle_data_mode(int socket);
+int connect_to_server(const char *ip, const char *port);
 
 int main(int argc, char *argv[]) {
-    int sock = 0;
-    struct sockaddr_in serv_addr;
-    char buffer[BUFFER_SIZE];
     
     // Check command line arguments
     if (argc != 3) {
@@ -25,29 +23,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    // Create socket
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation error");
-        exit(EXIT_FAILURE);
-    }
-    
-    // Set up server address
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(atoi(argv[2]));
-    
-    // Convert IPv4 address from text to binary form
-    if(inet_pton(AF_INET, argv[1], &serv_addr.sin_addr) <= 0) {
-        perror("Invalid address/ Address not supported");
-        exit(EXIT_FAILURE);
-    }
-    
-    // Connect to server
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("Connection Failed");
-        exit(EXIT_FAILURE);
-    }
-    
-    printf("Connected to My_SMTP server.\n");
+    int sock = connect_to_server(argv[1], argv[2]);
+    char buffer[BUFFER_SIZE];
     
     // Main loop for user interaction
     while (1) {
@@ -116,7 +93,7 @@ int main(int argc, char *argv[]) {
             }
         } 
         else {
-            // Handle regular commands
+            // Handle regular commands -> HELO, MAIL FROM, RCPT TO
             send_command(sock, buffer);
             receive_response(sock);
         }
@@ -126,18 +103,47 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void send_command(int socket, const char *command) {
-    char buffer[BUFFER_SIZE];
-    snprintf(buffer, sizeof(buffer), "%s\n", command);
+int connect_to_server(const char *ip, const char *port) {
+    int sock;
+    struct sockaddr_in serv_addr;
     
-    if (send(socket, buffer, strlen(buffer), 0) < 0) {
+    // Create socket
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation error");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Set up server address
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(atoi(port));
+    
+    // Convert IPv4 address from text to binary form
+    if(inet_pton(AF_INET, ip, &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/ Address not supported");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Connect to server
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection Failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Connected to My_SMTP server.\n");
+    return sock;
+}
+
+void send_command(int socket, const char *command) {
+    if (send(socket, command, strlen(command), 0) < 0) {
         perror("Failed to send command");
         exit(EXIT_FAILURE);
     }
+    // printf("Sent: %s\n", command);
 }
 
 int receive_response(int socket) {
     char buffer[BUFFER_SIZE] = {0};
+    // printf("waiting for response\n");
     int bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
     
     if (bytes_read <= 0) {
@@ -146,21 +152,19 @@ int receive_response(int socket) {
     }
     
     buffer[bytes_read] = '\0';
-    printf("%s", buffer);
+    printf("%s\n", buffer);
     
     // Extract response code
     int response_code = 0;
     sscanf(buffer, "%d", &response_code);
     return response_code;
 }
-
 void handle_data_mode(int socket) {
     char buffer[BUFFER_SIZE] = {0};
-    char email_body[MAX_EMAIL_SIZE] = {0};
     
-    printf("Enter your message (end with a single dot '.' on a new line):\n");
+    // printf("Enter your message (end with a single dot '.' on a new line):\n");
     
-    // Read message line by line
+    // Read and send message line by line
     while (1) {
         if (!fgets(buffer, BUFFER_SIZE, stdin)) {
             printf("Error reading input\n");
@@ -169,26 +173,18 @@ void handle_data_mode(int socket) {
         
         // Check for end of message (a single dot on a line)
         if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".\r\n") == 0 || strcmp(buffer, ".") == 0) {
+            // Send the terminating dot
+            send_command(socket, ".");
             break;
         }
         
-        // Append to email body
-        if (strlen(email_body) + strlen(buffer) < MAX_EMAIL_SIZE) {
-            strcat(email_body, buffer);
-        } else {
-            printf("Message too large, truncating\n");
-            break;
+        // Send each line immediately
+        if (send(socket, buffer, strlen(buffer), 0) < 0) {
+            perror("Failed to send email content");
+            return;
         }
     }
     
-    // Send the email body
-    if (send(socket, email_body, strlen(email_body), 0) < 0) {
-        perror("Failed to send email body");
-    }
-    
-    // Send the terminating dot
-    send_command(socket, ".");
-    
-    // Get response
+    // Get final response
     receive_response(socket);
 }

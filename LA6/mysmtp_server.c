@@ -25,6 +25,7 @@ void send_response(int socket, int code, const char *message);
 int store_email(const char *recipient, const char *sender, const char *message);
 void list_emails(int client_socket, const char *recipient);
 void get_email(int client_socket, const char *recipient, int id);
+void handle_data_mode(int socket, char *recipient, char *sender);
 
 int main(int argc, char *argv[]) {
     int server_fd, opt = 1;
@@ -62,7 +63,7 @@ int main(int argc, char *argv[]) {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(atoi(argv[1]));
     
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+    if (bind(server_fd, (struct sockaddr *)&address, addrlen) < 0) {
         perror("Bind failed");
         close(server_fd);
         exit(EXIT_FAILURE);
@@ -82,24 +83,24 @@ int main(int argc, char *argv[]) {
     
     // Accept connections and handle them
     while (1) {
-        client_t *client = malloc(sizeof(client_t));
-        socklen_t client_size = sizeof(client->address);
+        struct sockaddr_in client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
         
-        client->socket = accept(server_fd, (struct sockaddr *)&client->address, &client_size);
-        
-        if (client->socket < 0) {
+
+        // printf("Waiting for a client to connect...\n");
+        int client_socket = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (client_socket < 0) {
             perror("Accept failed");
-            free(client);
             continue;
         }
         
-        printf("Client connected: %s\n", inet_ntoa(client->address.sin_addr));
+        // printf("Client port: %d\n", ntohs(client_addr.sin_port));
+        printf("Client connected: %s\n", inet_ntoa(client_addr.sin_addr));
         
         pthread_t thread_id;
-        if (pthread_create(&thread_id, NULL, handle_client, (void *)client) != 0) {
+        if (pthread_create(&thread_id, NULL, handle_client, (void *)&client_socket) != 0) {
             perror("Thread creation failed");
-            close(client->socket);
-            free(client);
+            close(client_socket);
             continue;
         }
         
@@ -112,14 +113,15 @@ int main(int argc, char *argv[]) {
 }
 
 void *handle_client(void *arg) {
-    client_t *client = (client_t *)arg;
-    int client_socket = client->socket;
+    // printf("Thread created.\n");
+    int client_socket = *((int *)arg);
     char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
     
     char sender[100] = "";
     char recipient[100] = "";
     int state = 0;  // 0: initial, 1: HELO received, 2: MAIL FROM received, 3: RCPT TO received, 4: DATA mode
+    char email_domain[100] = "";
     
     // Communication loop
     while ((bytes_read = recv(client_socket, buffer, BUFFER_SIZE - 1, 0)) > 0) {
@@ -129,62 +131,40 @@ void *handle_client(void *arg) {
         char *newline = strchr(buffer, '\n');
         if (newline) *newline = '\0';
         
-        printf("Received command: %s\n", buffer);
-        
-        if (state == 4) {  // DATA mode
-            char email_body[MAX_EMAIL_SIZE] = "";
-            strcat(email_body, buffer);
-            strcat(email_body, "\n");
-            
-            // Continue receiving until a single dot on a line
-            while (1) {
-                bytes_read = recv(client_socket, buffer, BUFFER_SIZE - 1, 0);
-                if (bytes_read <= 0) break;
-                
-                buffer[bytes_read] = '\0';
-                
-                if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".\r\n") == 0 || strcmp(buffer, ".") == 0) {
-                    break;  // End of message
-                }
-                
-                // Append to email body
-                strcat(email_body, buffer);
-            }
-            
-            if (store_email(recipient, sender, email_body) == 0) {
-                send_response(client_socket, 200, "Message stored successfully");
-                printf("DATA received, message stored.\n");
-            } else {
-                send_response(client_socket, 500, "Failed to store message");
-            }
-            
-            state = 1;  // Back to command mode after DATA
-            continue;
-        }
+        // printf("Received command: %s, state: %d\n", buffer, state); // for debugging
         
         // Process commands
         if (strncmp(buffer, "HELO ", 5) == 0) {
-            char client_id[100];
-            if (sscanf(buffer, "HELO %s", client_id) == 1) {
+            if (sscanf(buffer, "HELO %s", email_domain) == 1) {
+                // printf("email domain set to %s\n", email_domain);
                 send_response(client_socket, 200, "OK");
-                printf("HELO received from %s\n", client_id);
+                printf("HELO received from %s\n", email_domain);
                 state = 1;
-            } else {
-                send_response(client_socket, 400, "Invalid syntax");
-            }
-        } else if (strncmp(buffer, "MAIL FROM: ", 11) == 0) {
-            if (state < 1) {
-                send_response(client_socket, 400, "Send HELO first");
-            } else if (sscanf(buffer, "MAIL FROM: %s", sender) == 1) {
-                send_response(client_socket, 200, "OK");
-                printf("MAIL FROM: %s\n", sender);
-                state = 2;
-            } else {
-                send_response(client_socket, 400, "Invalid syntax");
-            }
-        } else if (strncmp(buffer, "RCPT TO: ", 9) == 0) {
+            } 
+            else send_response(client_socket, 400, "Invalid syntax");
+        } 
+        else if (strncmp(buffer, "MAIL FROM: ", 11) == 0) {
+            if (state < 1) send_response(client_socket, 403, "Send HELO first");    
+            else if (sscanf(buffer, "MAIL FROM: %s", sender) == 1) {
+                // Check if the sender is from the same domain
+                char* at_sign = strchr(sender, '@');
+                if (at_sign != NULL) {
+                    char* sender_domain = at_sign + 1;
+                    // Compare sender's domain with the email domain from HELO
+                    if (strcmp(sender_domain, email_domain) == 0) {
+                        send_response(client_socket, 200, "OK");
+                        printf("MAIL FROM: %s\n", sender);
+                        state = 2;
+                    } 
+                    else send_response(client_socket, 400, "Sender domain does not match HELO domain, you may set the sender domain again with HELO");
+                } 
+                else send_response(client_socket, 400, "Invalid email format, missing @");
+            } 
+            else send_response(client_socket, 400, "Invalid syntax");
+        } 
+        else if (strncmp(buffer, "RCPT TO: ", 9) == 0) {
             if (state < 2) {
-                send_response(client_socket, 400, "Send MAIL FROM first");
+                send_response(client_socket, 403, "Send MAIL FROM first");
             } else if (sscanf(buffer, "RCPT TO: %s", recipient) == 1) {
                 send_response(client_socket, 200, "OK");
                 printf("RCPT TO: %s\n", recipient);
@@ -192,14 +172,19 @@ void *handle_client(void *arg) {
             } else {
                 send_response(client_socket, 400, "Invalid syntax");
             }
-        } else if (strcmp(buffer, "DATA") == 0) {
+        } 
+        else if (strcmp(buffer, "DATA") == 0) {
             if (state < 3) {
-                send_response(client_socket, 400, "Send RCPT TO first");
+                send_response(client_socket, 403, "Send RCPT TO first");
             } else {
-                send_response(client_socket, 200, "Enter message, end with a single dot");
-                state = 4;  // Switch to DATA mode
+                send_response(client_socket, 200, "Enter message, end with a single dot(.) in a new line");
+                handle_data_mode(client_socket, recipient, sender);
+                state = 1;
+                printf("State reset to 1:\n");
+                printf("Start again by sending HELO <email_domain>\n");
             }
-        } else if (strncmp(buffer, "LIST ", 5) == 0) {
+        } 
+        else if (strncmp(buffer, "LIST ", 5) == 0) {
             char email[100];
             if (sscanf(buffer, "LIST %s", email) == 1) {
                 printf("LIST %s\n", email);
@@ -226,13 +211,45 @@ void *handle_client(void *arg) {
     }
     
     close(client_socket);
-    free(client);
     return NULL;
 }
 
 void send_response(int socket, int code, const char *message) {
     char response[BUFFER_SIZE];
-    snprintf(response, sizeof(response), "%d %s\n", code, message);
+    snprintf(response, sizeof(response), "%d %s", code, message);
+    send(socket, response, strlen(response), 0);
+    // printf("Sent response: %s", response);
+}
+
+void handle_data_mode(int socket, char *recipient, char *sender) {
+    char buffer[BUFFER_SIZE];
+    ssize_t bytes_read;
+    char email_body[MAX_EMAIL_SIZE] = "";
+    
+    // Receive the email content line by line
+    while (1) {
+        // clear buffer
+        memset(buffer, 0, sizeof(buffer));
+        bytes_read = recv(socket, buffer, BUFFER_SIZE - 1, 0);
+        if (bytes_read <= 0) break;
+        // printf("Received: %s\n", buffer);
+        buffer[bytes_read] = '\0';
+        
+        // Check for end of message marker
+        if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".\r\n") == 0 || strcmp(buffer, ".") == 0) {
+            break;  // End of message
+        }
+        
+        // Append to email body
+        strcat(email_body, buffer);
+    }
+    
+    if (store_email(recipient, sender, email_body) == 0) {
+        send_response(socket, 200, "Message stored successfully");
+        printf("DATA received, message stored.\n");
+    } else {
+        send_response(socket, 500, "Failed to store message");
+    }
 }
 
 int store_email(const char *recipient, const char *sender, const char *message) {
