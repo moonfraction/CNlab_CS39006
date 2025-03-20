@@ -1,3 +1,18 @@
+/*=====================================
+Assignment 6 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+=====================================*/
+
+/*
+    Steps to compile and run:
+    1. make -> to compile server and client
+    2. make rs -> to run the server (or run ==> ./s <port>)
+    3. make rc -> to run the client in another terminal (or run ==> ./c <server_ip> <port>)
+    4. make clean -> to clean the executables
+    5. make deepclean -> to clean the executables and the mailbox directory
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -192,7 +207,8 @@ void *handle_client(void *arg) {
             } else {
                 send_response(client_socket, 400, "Invalid syntax");
             }
-        } else if (strncmp(buffer, "GET_MAIL ", 9) == 0) {
+        } 
+        else if (strncmp(buffer, "GET_MAIL ", 9) == 0) {
             char email[100];
             int id;
             if (sscanf(buffer, "GET_MAIL %s %d", email, &id) == 2) {
@@ -201,13 +217,13 @@ void *handle_client(void *arg) {
             } else {
                 send_response(client_socket, 400, "Invalid syntax");
             }
-        } else if (strcmp(buffer, "QUIT") == 0) {
+        } 
+        else if (strcmp(buffer, "QUIT") == 0) {
             send_response(client_socket, 200, "Goodbye");
             printf("Client disconnected.\n");
             break;
-        } else {
-            send_response(client_socket, 400, "Unknown command");
-        }
+        } 
+        else send_response(client_socket, 400, "Unknown command");
     }
     
     close(client_socket);
@@ -236,7 +252,8 @@ void recv_email_body(int socket, char *recipient, char *sender) {
         buffer[bytes_read] = '\0';
         
         // Check for end of message marker
-        if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".\r\n") == 0 || strcmp(buffer, ".") == 0) {
+        if (strcmp(buffer, ".") == 0) {
+            // printf("End of message\n");
             break;  // End of message
         }
         
@@ -287,8 +304,6 @@ void list_emails(int client_socket, const char *recipient) {
         return;
     }
     
-    send_response(client_socket, 200, "OK");
-    
     char line[BUFFER_SIZE];
     char email_list[MAX_EMAIL_SIZE] = "";
     int id = 1;
@@ -315,10 +330,15 @@ void list_emails(int client_socket, const char *recipient) {
     }
     
     fclose(file);
-    send(client_socket, email_list, strlen(email_list), 0);
+    
+    // Combine status code and email list in a single response
+    char response[MAX_EMAIL_SIZE + 100];
+    email_list[strlen(email_list) - 1] = '\0';
+    snprintf(response, sizeof(response), "OK\n%s", email_list);
+    send_response(client_socket, 200, response);
+    
     printf("Emails retrieved; list sent.\n");
 }
-
 void get_email(int client_socket, const char *recipient, int id) {
     char filename[256];
     snprintf(filename, sizeof(filename), "mailbox/%s.txt", recipient);
@@ -365,8 +385,11 @@ void get_email(int client_socket, const char *recipient, int id) {
     fclose(file);
     
     if (found) {
-        send_response(client_socket, 200, "OK");
-        send(client_socket, email_content, strlen(email_content), 0);
+        // Combine status and email content in a single response
+        char response[MAX_EMAIL_SIZE + 100];
+        email_content[strlen(email_content) - 1] = '\0';
+        snprintf(response, sizeof(response), "OK\n%s", email_content);
+        send_response(client_socket, 200, response);
         printf("Email with id %d sent.\n", id);
     } else {
         send_response(client_socket, 401, "Email not found");

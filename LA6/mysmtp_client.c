@@ -1,3 +1,19 @@
+/*=====================================
+Assignment 6 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+=====================================*/
+
+/*
+    Steps to compile and run:
+    1. make -> to compile server and client
+    2. make rs -> to run the server (or run ==> ./s <port>)
+    3. make rc -> to run the client in another terminal (or run ==> ./c <server_ip> <port>)
+    4. make clean -> to clean the executables
+    5. make deepclean -> to clean the executables and the mailbox directory
+*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,38 +75,9 @@ int main(int argc, char *argv[]) {
             if (response_code == 200) {
                 send_email_body(sock);
             }
-        } 
-        else if (strncmp(buffer, "LIST ", 5) == 0 || strncmp(buffer, "GET_MAIL ", 9) == 0) {
-            // Special handling for LIST and GET_MAIL to receive multi-line responses
-            send_command(sock, buffer);
-            int response_code = receive_response(sock);
-            
-            // If successful, receive additional data
-            if (response_code == 200) {
-                char data_buffer[MAX_EMAIL_SIZE] = {0};
-                int bytes_read = 0;
-                int total_bytes = 0;
-                
-                // Give server a moment to prepare data
-                usleep(100000);  // 100ms
-                
-                // Read all available data
-                while ((bytes_read = recv(sock, data_buffer + total_bytes, 
-                                         sizeof(data_buffer) - total_bytes - 1, MSG_DONTWAIT)) > 0) {
-                    total_bytes += bytes_read;
-                    data_buffer[total_bytes] = '\0';
-                    
-                    // Safety check against buffer overflow
-                    if (total_bytes >= sizeof(data_buffer) - 1) {
-                        break;
-                    }
-                }
-                
-                // If we received any additional data, display it
-                if (total_bytes > 0) {
-                    printf("%s", data_buffer);
-                }
-            }
+            // the domain is reset
+            printf("~~~ State reset to 0: ");
+            printf("Start again by sending HELO <email_domain>\n");
         } 
         else {
             // Handle regular commands -> HELO, MAIL FROM, RCPT TO
@@ -159,6 +146,7 @@ int receive_response(int socket) {
     sscanf(buffer, "%d", &response_code);
     return response_code;
 }
+
 void send_email_body(int socket) {
     char buffer[BUFFER_SIZE] = {0};
     
@@ -172,9 +160,10 @@ void send_email_body(int socket) {
         }
         
         // Check for end of message (a single dot on a line)
-        if (strcmp(buffer, ".\n") == 0 || strcmp(buffer, ".\r\n") == 0 || strcmp(buffer, ".") == 0) {
+        if (strcmp(buffer, ".\n") == 0) {
             // Send the terminating dot
             send_command(socket, ".");
+            // printf("Message sent.\n");
             break;
         }
         
