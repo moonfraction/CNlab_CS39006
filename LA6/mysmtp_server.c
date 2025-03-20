@@ -193,10 +193,23 @@ void *handle_client(void *arg) {
                 send_response(client_socket, 403, "Send RCPT TO first");
             } else {
                 send_response(client_socket, 200, "Enter message, end with a single dot(.) in a new line");
-                recv_email_body(client_socket, recipient, sender);
-                state = 0;
-                printf("~~~ State reset to 0: ");
-                printf("Start again by sending HELO <email_domain>\n");
+                char email_body[MAX_EMAIL_SIZE] = "";
+                int body_len = recv(client_socket, email_body, MAX_EMAIL_SIZE - 1, 0);
+                if (body_len < 0) {
+                    perror("Failed to receive email body");
+                    send_response(client_socket, 500, "Failed to receive email body");
+                }
+                else{
+                    if (store_email(recipient, sender, email_body) == 0) {
+                        send_response(client_socket, 200, "Message stored successfully");
+                        printf("DATA received, message stored.\n");
+                    } else {
+                        send_response(client_socket, 500, "Failed to store message");
+                    }
+                    state = 0;
+                    printf("~~~ State reset to 0: ");
+                    printf("Start again by sending HELO <email_domain>\n");
+                }
             }
         } 
         else if (strncmp(buffer, "LIST ", 5) == 0) {
@@ -339,6 +352,7 @@ void list_emails(int client_socket, const char *recipient) {
     
     printf("Emails retrieved; list sent.\n");
 }
+
 void get_email(int client_socket, const char *recipient, int id) {
     char filename[256];
     snprintf(filename, sizeof(filename), "mailbox/%s.txt", recipient);

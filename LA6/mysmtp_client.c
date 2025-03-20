@@ -149,10 +149,9 @@ int receive_response(int socket) {
 
 void send_email_body(int socket) {
     char buffer[BUFFER_SIZE] = {0};
+    char send_buffer[MAX_EMAIL_SIZE] = {0};
     
-    // printf("Enter your message (end with a single dot '.' on a new line):\n");
-    
-    // Read and send message line by line
+    // Read and concatenate message line by line
     while (1) {
         if (!fgets(buffer, BUFFER_SIZE, stdin)) {
             printf("Error reading input\n");
@@ -161,18 +160,22 @@ void send_email_body(int socket) {
         
         // Check for end of message (a single dot on a line)
         if (strcmp(buffer, ".\n") == 0) {
-            // Send the terminating dot
-            send_command(socket, ".");
-            // printf("Message sent.\n");
             break;
         }
         
-        // Send each line immediately
-        if (send(socket, buffer, strlen(buffer), 0) < 0) {
-            perror("Failed to send email content");
-            return;
+        // Check if adding this line would exceed buffer size
+        if (strlen(send_buffer) + strlen(buffer) >= MAX_EMAIL_SIZE) {
+            printf("Email too large, truncating\n");
+            break;
         }
+        
+        // Concatenate the line to the send buffer
+        strcat(send_buffer, buffer);
     }
+    
+    // Send the accumulated email body in one call
+    send_command(socket, send_buffer);
+    
     
     // Get final response
     receive_response(socket);
