@@ -25,7 +25,7 @@ void send_response(int socket, int code, const char *message);
 int store_email(const char *recipient, const char *sender, const char *message);
 void list_emails(int client_socket, const char *recipient);
 void get_email(int client_socket, const char *recipient, int id);
-void handle_data_mode(int socket, char *recipient, char *sender);
+void recv_email_body(int socket, char *recipient, char *sender);
 
 int main(int argc, char *argv[]) {
     int server_fd, opt = 1;
@@ -178,9 +178,9 @@ void *handle_client(void *arg) {
                 send_response(client_socket, 403, "Send RCPT TO first");
             } else {
                 send_response(client_socket, 200, "Enter message, end with a single dot(.) in a new line");
-                handle_data_mode(client_socket, recipient, sender);
-                state = 1;
-                printf("State reset to 1:\n");
+                recv_email_body(client_socket, recipient, sender);
+                state = 0;
+                printf("State reset to 0:\n");
                 printf("Start again by sending HELO <email_domain>\n");
             }
         } 
@@ -221,7 +221,7 @@ void send_response(int socket, int code, const char *message) {
     // printf("Sent response: %s", response);
 }
 
-void handle_data_mode(int socket, char *recipient, char *sender) {
+void recv_email_body(int socket, char *recipient, char *sender) {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
     char email_body[MAX_EMAIL_SIZE] = "";
@@ -271,7 +271,7 @@ int store_email(const char *recipient, const char *sender, const char *message) 
     fprintf(file, "From: %s\n", sender);
     fprintf(file, "Date: %s\n", date);
     fprintf(file, "%s", message);
-    fprintf(file, "\n===END_EMAIL===\n\n");
+    fprintf(file, "===END_EMAIL===\n\n");
     
     fclose(file);
     return 0;
@@ -283,7 +283,7 @@ void list_emails(int client_socket, const char *recipient) {
     
     FILE *file = fopen(filename, "r");
     if (!file) {
-        send_response(client_socket, 401, "No emails found for this recipient");
+        send_response(client_socket, 401, "Requested email does not exist");
         return;
     }
     

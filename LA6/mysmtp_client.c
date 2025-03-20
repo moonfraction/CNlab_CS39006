@@ -12,7 +12,7 @@
 // Function prototypes
 void send_command(int socket, const char *command);
 int receive_response(int socket);
-void handle_data_mode(int socket);
+void send_email_body(int socket);
 int connect_to_server(const char *ip, const char *port);
 
 int main(int argc, char *argv[]) {
@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
             
             // Only proceed with data entry if the server accepted DATA command
             if (response_code == 200) {
-                handle_data_mode(sock);
+                send_email_body(sock);
             }
         } 
         else if (strncmp(buffer, "LIST ", 5) == 0 || strncmp(buffer, "GET_MAIL ", 9) == 0) {
@@ -159,7 +159,7 @@ int receive_response(int socket) {
     sscanf(buffer, "%d", &response_code);
     return response_code;
 }
-void handle_data_mode(int socket) {
+void send_email_body(int socket) {
     char buffer[BUFFER_SIZE] = {0};
     
     // printf("Enter your message (end with a single dot '.' on a new line):\n");
