@@ -180,7 +180,7 @@ void *handle_client(void *arg) {
                 send_response(client_socket, 200, "Enter message, end with a single dot(.) in a new line");
                 recv_email_body(client_socket, recipient, sender);
                 state = 0;
-                printf("State reset to 0:\n");
+                printf("~~~ State reset to 0: ");
                 printf("Start again by sending HELO <email_domain>\n");
             }
         } 
@@ -325,7 +325,7 @@ void get_email(int client_socket, const char *recipient, int id) {
     
     FILE *file = fopen(filename, "r");
     if (!file) {
-        send_response(client_socket, 401, "No emails found for this recipient");
+        send_response(client_socket, 401, "Requested email does not exist");
         return;
     }
     
