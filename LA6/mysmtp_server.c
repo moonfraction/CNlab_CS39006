@@ -40,7 +40,6 @@ void send_response(int socket, int code, const char *message);
 int store_email(const char *recipient, const char *sender, const char *message);
 void list_emails(int client_socket, const char *recipient);
 void get_email(int client_socket, const char *recipient, int id);
-void recv_email_body(int socket, char *recipient, char *sender);
 
 int main(int argc, char *argv[]) {
     int server_fd, opt = 1;
@@ -101,7 +100,6 @@ int main(int argc, char *argv[]) {
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
         
-
         // printf("Waiting for a client to connect...\n");
         int client_socket = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
         if (client_socket < 0) {
@@ -248,38 +246,6 @@ void send_response(int socket, int code, const char *message) {
     snprintf(response, sizeof(response), "%d %s", code, message);
     send(socket, response, strlen(response), 0);
     // printf("Sent response: %s", response);
-}
-
-void recv_email_body(int socket, char *recipient, char *sender) {
-    char buffer[BUFFER_SIZE];
-    ssize_t bytes_read;
-    char email_body[MAX_EMAIL_SIZE] = "";
-    
-    // Receive the email content line by line
-    while (1) {
-        // clear buffer
-        memset(buffer, 0, sizeof(buffer));
-        bytes_read = recv(socket, buffer, BUFFER_SIZE - 1, 0);
-        if (bytes_read <= 0) break;
-        // printf("Received: %s\n", buffer);
-        buffer[bytes_read] = '\0';
-        
-        // Check for end of message marker
-        if (strcmp(buffer, ".") == 0) {
-            // printf("End of message\n");
-            break;  // End of message
-        }
-        
-        // Append to email body
-        strcat(email_body, buffer);
-    }
-    
-    if (store_email(recipient, sender, email_body) == 0) {
-        send_response(socket, 200, "Message stored successfully");
-        printf("DATA received, message stored.\n");
-    } else {
-        send_response(socket, 500, "Failed to store message");
-    }
 }
 
 int store_email(const char *recipient, const char *sender, const char *message) {

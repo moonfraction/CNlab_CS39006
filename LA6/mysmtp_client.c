@@ -176,7 +176,6 @@ void send_email_body(int socket) {
     // Send the accumulated email body in one call
     send_command(socket, send_buffer);
     
-    
     // Get final response
     receive_response(socket);
 }
