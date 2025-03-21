@@ -68,14 +68,44 @@ int main(int argc, char *argv[]) {
         
         // Check for different command types
         if (strcmp(buffer, "DATA") == 0) {
-            send_command(sock, buffer);
-            int response_code = receive_response(sock);
+            printf("Enter message, end with a single dot(.) in a new line: \n");
+            char email_body_buf[BUFFER_SIZE] = "";
+            char email_body[MAX_EMAIL_SIZE] = "";
             
-            // Only proceed with data entry if the server accepted DATA command
-            if (response_code == 200) {
-                send_email_body(sock);
+            // Read and concatenate message line by line
+            while (1) {
+                // clean the buffer
+                memset(email_body_buf, 0, sizeof(email_body_buf));
+                if (!fgets(email_body_buf, BUFFER_SIZE, stdin)) {
+                    printf("Error reading input\n");
+                    break;
+                }
+                
+                // printf("email_body_buf: %s\n", email_body_buf);
+
+                // Check for end of message (a single dot on a line)
+                if (strcmp(email_body_buf, ".\n") == 0) {
+                    break;
+                }
+                
+                // Check if adding this line would exceed buffer size
+                if (strlen(email_body) + strlen(email_body_buf) >= MAX_EMAIL_SIZE) {
+                    printf("Email too large, truncating\n");
+                    break;
+                }
+                
+                // Concatenate the line to the send buffer
+                strcat(email_body, email_body_buf);
             }
-            // the domain is reset
+    
+            // printf("email_body: %s\n", email_body);
+            char send_buffer[MAX_EMAIL_SIZE + 10] = "DATA\n";
+            strcat(send_buffer, email_body);
+
+            send_command(sock, send_buffer);
+            receive_response(sock);
+
+            // the domain is reset to 0 by server
             printf("~~~ State reset to 0: ");
             printf("Start again by sending HELO <email_domain>\n");
         } 

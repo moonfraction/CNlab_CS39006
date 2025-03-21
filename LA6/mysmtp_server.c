@@ -25,7 +25,7 @@ Roll number: 22CS30017
 #include <sys/stat.h>
 #include <time.h>
 
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 4096
 #define MAX_CLIENTS 10
 #define MAX_EMAIL_SIZE 4096
 
@@ -186,28 +186,21 @@ void *handle_client(void *arg) {
                 send_response(client_socket, 400, "Invalid syntax");
             }
         } 
-        else if (strcmp(buffer, "DATA") == 0) {
+        else if (strncmp(buffer, "DATA", 4) == 0) {
             if (state < 3) {
                 send_response(client_socket, 403, "Send RCPT TO first");
             } else {
-                send_response(client_socket, 200, "Enter message, end with a single dot(.) in a new line");
-                char email_body[MAX_EMAIL_SIZE] = "";
-                int body_len = recv(client_socket, email_body, MAX_EMAIL_SIZE - 1, 0);
-                if (body_len < 0) {
-                    perror("Failed to receive email body");
-                    send_response(client_socket, 500, "Failed to receive email body");
+                // send_response(client_socket, 200, "Enter message, end with a single dot(.) in a new line");
+                if (store_email(recipient, sender, buffer+5) == 0) {
+                    send_response(client_socket, 200, "Message stored successfully");
+                    printf("DATA received, message stored.\n");
+                } else {
+                    send_response(client_socket, 500, "Failed to store message");
                 }
-                else{
-                    if (store_email(recipient, sender, email_body) == 0) {
-                        send_response(client_socket, 200, "Message stored successfully");
-                        printf("DATA received, message stored.\n");
-                    } else {
-                        send_response(client_socket, 500, "Failed to store message");
-                    }
-                    state = 0;
-                    printf("~~~ State reset to 0: ");
-                    printf("Start again by sending HELO <email_domain>\n");
-                }
+                state = 0;
+                printf("~~~ State reset to 0: ");
+                printf("Start again by sending HELO <email_domain>\n");
+            
             }
         } 
         else if (strncmp(buffer, "LIST ", 5) == 0) {
