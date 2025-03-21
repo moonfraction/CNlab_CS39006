@@ -28,7 +28,6 @@ Roll number: 22CS30017
 // Function prototypes
 void send_command(int socket, const char *command);
 int receive_response(int socket);
-void send_email_body(int socket);
 int connect_to_server(const char *ip, const char *port);
 
 int main(int argc, char *argv[]) {
@@ -175,37 +174,4 @@ int receive_response(int socket) {
     int response_code = 0;
     sscanf(buffer, "%d", &response_code);
     return response_code;
-}
-
-void send_email_body(int socket) {
-    char buffer[BUFFER_SIZE] = {0};
-    char send_buffer[MAX_EMAIL_SIZE] = {0};
-    
-    // Read and concatenate message line by line
-    while (1) {
-        if (!fgets(buffer, BUFFER_SIZE, stdin)) {
-            printf("Error reading input\n");
-            return;
-        }
-        
-        // Check for end of message (a single dot on a line)
-        if (strcmp(buffer, ".\n") == 0) {
-            break;
-        }
-        
-        // Check if adding this line would exceed buffer size
-        if (strlen(send_buffer) + strlen(buffer) >= MAX_EMAIL_SIZE) {
-            printf("Email too large, truncating\n");
-            break;
-        }
-        
-        // Concatenate the line to the send buffer
-        strcat(send_buffer, buffer);
-    }
-    
-    // Send the accumulated email body in one call
-    send_command(socket, send_buffer);
-    
-    // Get final response
-    receive_response(socket);
 }
