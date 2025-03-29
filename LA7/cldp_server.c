@@ -137,7 +137,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    printf("CLDP Server running...\n");
+    printf("+++ CLDP Server running...\n");
 
     // Multiplex between receiving packets and sending periodic HELLO messages.
     fd_set read_fds;
@@ -198,7 +198,7 @@ int main() {
 
                     // Send the RESPONSE packet back to the sender.
                     send_packet(sockfd, &src_addr, MSG_RESPONSE, trans_id, response_payload, offset);
-                    printf("Sent RESPONSE to %s (trans_id %d)\n", inet_ntoa(src_addr.sin_addr), trans_id);
+                    printf("<-- Sent RESPONSE to %s (trans_id %d)\n", inet_ntoa(src_addr.sin_addr), trans_id);
                 }
             }
         }
@@ -213,7 +213,7 @@ int main() {
             inet_aton("127.0.0.1", &broadcast_addr.sin_addr);
 
             send_packet(sockfd, &broadcast_addr, MSG_HELLO, 0, NULL, 0);
-            printf("Broadcast HELLO sent.\n");
+            printf("<== Broadcast HELLO sent.\n");
             last_hello = time(NULL);
         }
     }

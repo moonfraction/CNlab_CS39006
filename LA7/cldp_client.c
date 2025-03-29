@@ -85,7 +85,7 @@ void update_server_list(struct in_addr addr) {
         server_list[server_count].addr = addr;
         server_list[server_count].last_seen = now;
         server_list[server_count].active = 1;
-        printf("Added new server: %s\n", inet_ntoa(addr));
+        printf("+++ Added new server: %s\n", inet_ntoa(addr));
         server_count++;
     }
 }
@@ -98,7 +98,7 @@ void cleanup_server_list() {
     while (i < server_count) {
         // Remove servers that are inactive or haven't been seen in SERVER_TIMEOUT seconds
         if (!server_list[i].active || (now - server_list[i].last_seen > SERVER_TIMEOUT)) {
-            printf("Removing server: %s (", inet_ntoa(server_list[i].addr));
+            printf("--- Removing server: %s (", inet_ntoa(server_list[i].addr));
             if (!server_list[i].active) {
                 printf("unresponsive)\n");
             } else {
@@ -158,8 +158,9 @@ void send_packet(int sockfd, struct sockaddr_in *dest, uint8_t msg_type,
 
 // Function to listen for HELLO messages for a specified duration
 void listen_for_hello(int sockfd, int duration_sec) {
-    printf("\nListening for HELLO messages (%d seconds)...\n", duration_sec);
+    printf("\n~~~ Listening for HELLO messages (%d seconds)...\n", duration_sec);
     
+    int server_cnt_b4 = server_count;
     fd_set read_fds;
     struct timeval tv;
     time_t start_time = time(NULL);
@@ -197,18 +198,25 @@ void listen_for_hello(int sockfd, int duration_sec) {
                 if (cldp_hdr->msg_type == MSG_HELLO) {
                     struct in_addr src_ip;
                     src_ip.s_addr = ip_hdr->saddr;
-                    printf("Received HELLO from %s\n", inet_ntoa(src_ip));
+                    printf("==> Received HELLO from %s\n", inet_ntoa(src_ip));
                     update_server_list(src_ip);
                 }
             }
         }
+    }
+
+    if(server_count > server_cnt_b4) {
+        printf("+++ Found %d new servers during HELLO listening.\n", 
+               server_count - server_cnt_b4);
+    } else {
+        printf("``` No new servers found during HELLO listening.\n");
     }
 }
 
 // Function to query all servers and wait for responses
 void query_all_servers(int sockfd) {
     if (server_count == 0) {
-        printf("No active servers to query.\n");
+        printf("!!! No active servers to query.\n");
         return;
     }
 
@@ -222,8 +230,31 @@ void query_all_servers(int sockfd) {
     // Generate a unique transaction id for this batch of queries
     uint16_t trans_id = rand() % 65535;
     
-    // Query bitmask: request hostname, system time, and CPU load
-    uint8_t query_flags = META_HOSTNAME | META_TIME | META_CPULOAD;
+    // Ask user which metadata to request
+    uint8_t query_flags = 0;
+    printf(">>> Select metadata to request (enter y/n for each option):\n");
+
+    char choice;
+    printf("Request hostname? (y/n): ");
+    scanf(" %c", &choice);
+    if (choice == 'y' || choice == 'Y')
+        query_flags |= META_HOSTNAME;
+
+    printf("Request system time? (y/n): ");
+    scanf(" %c", &choice);
+    if (choice == 'y' || choice == 'Y')
+        query_flags |= META_TIME;
+
+    printf("Request CPU load? (y/n): ");
+    scanf(" %c", &choice);
+    if (choice == 'y' || choice == 'Y')
+        query_flags |= META_CPULOAD;
+
+    // If user didn't select anything, default to all
+    if (query_flags == 0) {
+        printf("No options selected. Defaulting to request all metadata.\n");
+        query_flags = META_HOSTNAME | META_TIME | META_CPULOAD;
+    }
     
     // Send a query to each server
     for (int i = 0; i < server_count; i++) {
@@ -233,7 +264,7 @@ void query_all_servers(int sockfd) {
         dest.sin_addr = server_list[i].addr;
         
         send_packet(sockfd, &dest, MSG_QUERY, trans_id, (char *)&query_flags, 1);
-        printf("Sent QUERY (trans_id %d) to %s\n", trans_id, inet_ntoa(server_list[i].addr));
+        printf("<-- Sent QUERY (trans_id %d) to %s\n", trans_id, inet_ntoa(server_list[i].addr));
     }
     
     // Wait for responses with a timeout
@@ -287,7 +318,7 @@ void query_all_servers(int sockfd) {
                                 memcpy(response, buffer + sizeof(struct iphdr) + 
                                       sizeof(cldp_header_t), payload_len);
                                 response[payload_len] = '\0';
-                                printf("\nReceived RESPONSE from %s:\n%s", 
+                                printf("\n--> Received RESPONSE from %s:\n%s", 
                                       inet_ntoa(server_list[i].addr), response);
                             }
                             break;
@@ -307,7 +338,7 @@ void query_all_servers(int sockfd) {
     // Cleanup unresponsive servers
     cleanup_server_list();
     
-    printf("\nQuery complete. %d servers responded out of %d total.\n", 
+    printf("\n:D Query complete. %d servers responded out of %d total.\n", 
            responses_received, server_count + (server_count - responses_received));
 }
 
@@ -326,6 +357,8 @@ int main() {
 
     srand(time(NULL));
 
+    printf("+++ CLDP Client running...\n");
+
     while (1) {
         listen_for_hello(sockfd, 10);
         
@@ -334,6 +367,8 @@ int main() {
         
         // Ask user to continue or exit
         printf("\nPress Enter to repeat the process or type 'exit' to quit: ");
+        // fflush(stdin);
+        while (getchar() != '\n');
         char input[10];
         if (fgets(input, sizeof(input), stdin) != NULL) {
             if (strncmp(input, "exit", 4) == 0)
