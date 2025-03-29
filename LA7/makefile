@@ -10,10 +10,10 @@ cldp_client: cldp_client.c
 	$(CC) $(CFLAGS) -o c cldp_client.c
 
 rs: cldp_server
-	./s
+	sudo ./s
 
 rc: cldp_client
-	./c
+	sudo ./c
 
 clean:
 	rm -f s c

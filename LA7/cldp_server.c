@@ -119,6 +119,39 @@ void send_packet(int sockfd, struct sockaddr_in *dest, uint8_t msg_type,
     }
 }
 
+void process_query(int sockfd, struct sockaddr_in *src_addr, const char *buffer, cldp_header_t *cldp_hdr) {
+    uint16_t trans_id = ntohs(cldp_hdr->trans_id);
+    
+    // The query payload is a bitmask of requested metadata
+    uint8_t query_flags = 0;
+    if (cldp_hdr->payload_len >= 1)
+        query_flags = *(buffer + sizeof(struct iphdr) + sizeof(cldp_header_t));
+
+    char response_payload[256];
+    int offset = 0;
+    if (query_flags & META_HOSTNAME) {
+        char hostname[64];
+        get_hostname(hostname, sizeof(hostname));
+        offset += snprintf(response_payload + offset, sizeof(response_payload) - offset,
+                        "Hostname: %s\n", hostname);
+    }
+    if (query_flags & META_TIME) {
+        char timestr[64];
+        get_system_time(timestr, sizeof(timestr));
+        offset += snprintf(response_payload + offset, sizeof(response_payload) - offset,
+                        "Time: %s\n", timestr);
+    }
+    if (query_flags & META_CPULOAD) {
+        float load = get_cpu_load();
+        offset += snprintf(response_payload + offset, sizeof(response_payload) - offset,
+                        "CPU Load: %.2f\n", load);
+    }
+
+    // Send the RESPONSE packet back to the sender
+    send_packet(sockfd, src_addr, MSG_RESPONSE, trans_id, response_payload, offset);
+    printf("<-- Sent RESPONSE to %s (trans_id %d)\n", inet_ntoa(src_addr->sin_addr), trans_id);
+}
+
 int main() {
     int sockfd;
     if ((sockfd = socket(AF_INET, SOCK_RAW, PROTOCOL_NUM)) < 0) {
@@ -168,7 +201,6 @@ int main() {
             struct sockaddr_in src_addr;
             socklen_t addrlen = sizeof(src_addr);
             int data_len = recvfrom(sockfd, buffer, BUF_SIZE, 0, (struct sockaddr *)&src_addr, &addrlen);
-            printf("\n--> Received packet from %s\n", inet_ntoa(src_addr.sin_addr));
             // Check if the packet is a CLDP packet.
             if (data_len > 0) {
                 struct iphdr *ip_hdr = (struct iphdr *)buffer;
@@ -178,35 +210,7 @@ int main() {
 
                 // Process QUERY messages: reply with a RESPONSE.
                 if (cldp_hdr->msg_type == MSG_QUERY) {
-                    uint16_t trans_id = ntohs(cldp_hdr->trans_id);
-                    // The query payload is a bitmask of requested metadata.
-                    uint8_t query_flags = 0;
-                    if (cldp_hdr->payload_len >= 1)
-                        query_flags = *(buffer + sizeof(struct iphdr) + sizeof(cldp_header_t));
-
-                    char response_payload[256];
-                    int offset = 0;
-                    if (query_flags & META_HOSTNAME) {
-                        char hostname[64];
-                        get_hostname(hostname, sizeof(hostname));
-                        offset += snprintf(response_payload + offset, sizeof(response_payload) - offset,
-                                        "Hostname: %s\n", hostname);
-                    }
-                    if (query_flags & META_TIME) {
-                        char timestr[64];
-                        get_system_time(timestr, sizeof(timestr));
-                        offset += snprintf(response_payload + offset, sizeof(response_payload) - offset,
-                                        "Time: %s\n", timestr);
-                    }
-                    if (query_flags & META_CPULOAD) {
-                        float load = get_cpu_load();
-                        offset += snprintf(response_payload + offset, sizeof(response_payload) - offset,
-                                        "CPU Load: %.2f\n", load);
-                    }
-
-                    // Send the RESPONSE packet back to the sender.
-                    send_packet(sockfd, &src_addr, MSG_RESPONSE, trans_id, response_payload, offset);
-                    printf("<-- Sent RESPONSE to %s (trans_id %d)\n", inet_ntoa(src_addr.sin_addr), trans_id);
+                    process_query(sockfd, &src_addr, buffer, cldp_hdr);
                 }
             }
             else {
