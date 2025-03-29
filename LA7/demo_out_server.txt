@@ -1,0 +1,10 @@
+gcc -Wall -o s cldp_server.c
+sudo ./s
++++ CLDP Server running...
+<== Broadcast HELLO sent.
+<-- Sent RESPONSE to 127.0.0.1 (trans_id 2824)
+<== Broadcast HELLO sent.
+<== Broadcast HELLO sent.
+<-- Sent RESPONSE to 127.0.0.1 (trans_id 18260)
+<== Broadcast HELLO sent.
+
