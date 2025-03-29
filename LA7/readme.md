@@ -162,3 +162,124 @@ Compile the server and client using gcc:
 ```bash
 gcc -o cldp_server cldp_server.c
 gcc -o cldp_client cldp_client.c
+```
+
+---
+
+Sure! The code snippet you provided is constructing an IPv4 header manually in C. Let me break it down step by step.
+
+---
+
+## **Understanding the Code**
+
+### **1. Declaring and Casting the IP Header**
+```c
+struct iphdr *ip_hdr = (struct iphdr *)buffer;
+```
+- `buffer` is assumed to be a memory block where the IP header will be stored.
+- The `struct iphdr` is a standard Linux structure representing an IPv4 header (found in `<linux/ip.h>` or `<netinet/ip.h>`).
+- The `(struct iphdr *)buffer` casts the memory location to treat it as an `iphdr` structure.
+
+---
+
+### **2. Setting IP Header Fields**
+
+#### **Internet Header Length (`ihl`)**
+```c
+ip_hdr->ihl = 5;
+```
+- `ihl` stands for **Internet Header Length**.
+- The value `5` means **5 words of 4 bytes each**, totaling **20 bytes** (the standard IPv4 header size).
+- `ihl` is measured in **32-bit words**, so `5 * 4 = 20` bytes.
+
+#### **IP Version (`version`)**
+```c
+ip_hdr->version = 4;
+```
+- The IP version is **IPv4**.
+
+#### **Type of Service (`tos`)**
+```c
+ip_hdr->tos = 0;
+```
+- `tos` (Type of Service) is used for Quality of Service (QoS).
+- `0` means default service (no priority handling).
+
+#### **Total Length (`tot_len`)**
+```c
+int total_len = sizeof(struct iphdr) + sizeof(cldp_header_t) + payload_len;
+ip_hdr->tot_len = htons(total_len);
+```
+- The **total length** includes:
+  - The IPv4 header (`sizeof(struct iphdr)`)
+  - A **custom protocol header** (`sizeof(cldp_header_t)`, which is not defined here)
+  - The **payload size** (`payload_len`).
+- `htons()` ensures the value is converted to **network byte order** (big-endian).
+
+#### **Identification (`id`)**
+```c
+ip_hdr->id = htons(rand() % 65535);
+```
+- `id` is used to identify fragmented packets.
+- `rand() % 65535` assigns a random **packet identifier**.
+- `htons()` converts it to **network byte order**.
+
+#### **Fragmentation Offset (`frag_off`)**
+```c
+ip_hdr->frag_off = 0;
+```
+- This means **no fragmentation** (DF = 0, MF = 0).
+- If fragmenting, this field would hold fragment offsets.
+
+#### **Time to Live (`ttl`)**
+```c
+ip_hdr->ttl = 64;
+```
+- **TTL (Time to Live)** controls how many hops (routers) the packet can traverse before being discarded.
+- `64` is a common default.
+
+#### **Protocol (`protocol`)**
+```c
+ip_hdr->protocol = PROTOCOL_NUM;
+```
+- This specifies the **next protocol** (e.g., TCP, UDP, ICMP).
+- `PROTOCOL_NUM` is a placeholder, which should be replaced by actual protocol values like:
+  - `6` for TCP
+  - `17` for UDP
+  - `1` for ICMP
+
+#### **Source Address (`saddr`)**
+```c
+ip_hdr->saddr = INADDR_ANY;
+```
+- The **source IP address** is set to `INADDR_ANY` (0.0.0.0).
+- Normally, you would use a real source IP (`inet_addr("192.168.1.1")`).
+
+#### **Destination Address (`daddr`)**
+```c
+ip_hdr->daddr = dest->sin_addr.s_addr;
+```
+- The destination IP (`daddr`) is copied from the `dest` struct (`struct sockaddr_in`).
+- `dest->sin_addr.s_addr` holds the actual IP address.
+
+---
+
+### **3. Calculating the IP Header Checksum**
+```c
+ip_hdr->check = 0;
+ip_hdr->check = checksum((unsigned short *)ip_hdr, ip_hdr->ihl * 2);
+```
+- The **checksum** is required for IPv4 headers.
+- It first sets `check = 0` to clear any previous value.
+- Then it calculates the checksum using the function `checksum()`.
+- The checksum is computed over the **IP header only** (`ip_hdr->ihl * 2` because `ihl` is in 32-bit words).
+
+---
+
+## **Final Thoughts**
+This code constructs a **raw IPv4 header** for **custom networking applications**, such as:
+- **Raw socket programming** (sending custom packets).
+- **Creating a new protocol** on top of IP.
+- **Packet crafting and analysis** (e.g., in security testing).
+
+Let me know if you need more details! 🚀

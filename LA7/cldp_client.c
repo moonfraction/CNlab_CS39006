@@ -1,7 +1,13 @@
+/*=====================================
+Assignment 7 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+=====================================*/
+
 /* cldp_client.c
 * A CLDP client that:
-* - Listens for HELLO messages and maintains a list of active servers.
-* - Sends a QUERY message to each active server for metadata.
+* - First listens for HELLO messages for 10 seconds and maintains a list of active servers.
+* - Then sends a QUERY message to each active server for metadata.
 * - Waits for RESPONSE messages with matching transaction IDs.
 * - Removes unresponsive servers from its active server list.
 * - Prompts the user to continue or exit.
@@ -19,7 +25,7 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <netinet/ip.h>   // using iphdr from here
+#include <netinet/ip.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/time.h>
@@ -146,7 +152,7 @@ void send_packet(int sockfd, struct sockaddr_in *dest, uint8_t msg_type,
     cldp_hdr->trans_id = htons(trans_id);
     cldp_hdr->reserved = 0;
 
-    // Copy payload if provided
+    // Copy metadata payload for query
     if (payload_len > 0 && payload != NULL) {
         memcpy(buffer + sizeof(struct iphdr) + sizeof(cldp_header_t), payload, payload_len);
     }
@@ -158,14 +164,20 @@ void send_packet(int sockfd, struct sockaddr_in *dest, uint8_t msg_type,
 
 // Function to listen for HELLO messages for a specified duration
 void listen_for_hello(int sockfd, int duration_sec) {
-    printf("\n~~~ Listening for HELLO messages (%d seconds)...\n", duration_sec);
+    // printf("\n~~~ Listening for HELLO messages...\n");
     
     int server_cnt_b4 = server_count;
     fd_set read_fds;
     struct timeval tv;
     time_t start_time = time(NULL);
+    int elapsed_time = 0;
 
     while (time(NULL) - start_time < duration_sec) {
+        // Print countdown on the same line
+        printf("\r~~~ Listening for HELLO messages: %d seconds remaining...", 
+               duration_sec - elapsed_time);
+        fflush(stdout);  // Ensure it displays immediately
+        
         FD_ZERO(&read_fds);
         FD_SET(sockfd, &read_fds);
 
@@ -173,6 +185,7 @@ void listen_for_hello(int sockfd, int duration_sec) {
         tv.tv_usec = 0;
 
         int activity = select(sockfd + 1, &read_fds, NULL, NULL, &tv);
+        elapsed_time = time(NULL) - start_time;  // Update elapsed time
 
         if (activity < 0 && errno != EINTR) {
             perror("select error");
@@ -198,12 +211,13 @@ void listen_for_hello(int sockfd, int duration_sec) {
                 if (cldp_hdr->msg_type == MSG_HELLO) {
                     struct in_addr src_ip;
                     src_ip.s_addr = ip_hdr->saddr;
-                    printf("==> Received HELLO from %s\n", inet_ntoa(src_ip));
+                    printf("\n==> Received HELLO from %s\n", inet_ntoa(src_ip));
                     update_server_list(src_ip);
                 }
             }
         }
     }
+    printf("\n");  // Add a newline after countdown completes
 
     if(server_count > server_cnt_b4) {
         printf("+++ Found %d new servers during HELLO listening.\n", 
@@ -338,7 +352,7 @@ void query_all_servers(int sockfd) {
     // Cleanup unresponsive servers
     cleanup_server_list();
     
-    printf("\n:D Query complete. %d servers responded out of %d total.\n", 
+    printf("\n:D Query complete. [%d/%d] servers responded.\n", 
            responses_received, server_count + (server_count - responses_received));
 }
 

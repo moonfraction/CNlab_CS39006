@@ -1,12 +1,18 @@
+/*=====================================
+Assignment 7 Submission
+Name: Chandransh Singh
+Roll number: 22CS30017
+=====================================*/
+
 /* cldp_server.c
 * A CLDP server that:
 * - Announces HELLO every 10 seconds.
 * - Listens for incoming QUERY messages and responds with the requested metadata.
 *
 * Compile with:
-*   gcc -o cldp_server cldp_server.c
+*   gcc -o s cldp_server.c
 * Run with:
-*   sudo ./cldp_server
+*   sudo ./s
 */
 
 #include <stdio.h>
@@ -16,7 +22,7 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <netinet/ip.h>   // using iphdr from here
+#include <netinet/ip.h>
 #include <sys/time.h>
 #include <errno.h>
 #include <sys/sysinfo.h>
@@ -36,13 +42,13 @@
 
 // CLDP custom header (8 bytes)
 typedef struct {
-    uint8_t  msg_type;
-    uint8_t  payload_len;  // payload length in bytes
-    uint16_t trans_id;
-    uint32_t reserved;
-} __attribute__((packed)) cldp_header_t;
+    uint8_t  msg_type;      // 1 byte
+    uint8_t  payload_len;   // 1 bytes (payload length in bytes)
+    uint16_t trans_id;      // 2 bytes (transaction ID)
+    uint32_t reserved;      // 4 bytes (reserved for future use)
+} __attribute__((packed)) cldp_header_t; // packed to avoid padding
 
-// Function to compute IP header checksum
+// IP header checksum
 unsigned short checksum(unsigned short *buf, int nwords) {
     unsigned long sum = 0;
     for (int i = 0; i < nwords; i++) {
@@ -80,7 +86,7 @@ void send_packet(int sockfd, struct sockaddr_in *dest, uint8_t msg_type,
     char buffer[BUF_SIZE];
     memset(buffer, 0, BUF_SIZE);
 
-    // Build IP header using struct iphdr
+    // IP header
     struct iphdr *ip_hdr = (struct iphdr *)buffer;
     ip_hdr->ihl = 5;
     ip_hdr->version = 4;
@@ -92,18 +98,18 @@ void send_packet(int sockfd, struct sockaddr_in *dest, uint8_t msg_type,
     ip_hdr->ttl = 64;
     ip_hdr->protocol = PROTOCOL_NUM;
     ip_hdr->check = 0;
-    ip_hdr->saddr = INADDR_ANY;  // Kernel will fill the proper source address
+    ip_hdr->saddr = INADDR_ANY;
     ip_hdr->daddr = dest->sin_addr.s_addr;
     ip_hdr->check = checksum((unsigned short *)ip_hdr, ip_hdr->ihl * 2);
 
-    // Build CLDP header right after the IP header
+    // CLDP header
     cldp_header_t *cldp_hdr = (cldp_header_t *)(buffer + sizeof(struct iphdr));
     cldp_hdr->msg_type = msg_type;
     cldp_hdr->payload_len = payload_len;
     cldp_hdr->trans_id = htons(trans_id);
     cldp_hdr->reserved = 0;
 
-    // Copy payload if present
+    // payload for RESPONSE
     if (payload_len > 0 && payload != NULL) {
         memcpy(buffer + sizeof(struct iphdr) + sizeof(cldp_header_t), payload, payload_len);
     }
@@ -162,6 +168,8 @@ int main() {
             struct sockaddr_in src_addr;
             socklen_t addrlen = sizeof(src_addr);
             int data_len = recvfrom(sockfd, buffer, BUF_SIZE, 0, (struct sockaddr *)&src_addr, &addrlen);
+            printf("\n--> Received packet from %s\n", inet_ntoa(src_addr.sin_addr));
+            // Check if the packet is a CLDP packet.
             if (data_len > 0) {
                 struct iphdr *ip_hdr = (struct iphdr *)buffer;
                 if (ip_hdr->protocol != PROTOCOL_NUM)
@@ -201,6 +209,10 @@ int main() {
                     printf("<-- Sent RESPONSE to %s (trans_id %d)\n", inet_ntoa(src_addr.sin_addr), trans_id);
                 }
             }
+            else {
+                perror("recvfrom failed");
+                continue;
+            }
         }
 
         // Every 10 seconds, send a HELLO message (for node announcement).
@@ -209,8 +221,8 @@ int main() {
             memset(&broadcast_addr, 0, sizeof(broadcast_addr));
             broadcast_addr.sin_family = AF_INET;
             broadcast_addr.sin_port = 0;
-            // Change this broadcast address as appropriate.
-            inet_aton("127.0.0.1", &broadcast_addr.sin_addr);
+            
+            inet_aton("127.0.0.1", &broadcast_addr.sin_addr); // change broadcast address as needed
 
             send_packet(sockfd, &broadcast_addr, MSG_HELLO, 0, NULL, 0);
             printf("<== Broadcast HELLO sent.\n");
