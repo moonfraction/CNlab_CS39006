@@ -166,6 +166,19 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
+    // Set socket options to allow broadcast
+    int broadcast_enable = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable)) < 0) {
+        perror("setsockopt SO_BROADCAST error");
+        exit(EXIT_FAILURE);
+    }
+    // Set socket options to allow reuse of address
+    int reuse_addr = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr)) < 0) {
+        perror("setsockopt SO_REUSEADDR error");
+        exit(EXIT_FAILURE);
+    }
+
     // Bind to any interface
     struct sockaddr_in saddr;
     memset(&saddr, 0, sizeof(saddr));
@@ -224,9 +237,9 @@ int main() {
             struct sockaddr_in broadcast_addr;
             memset(&broadcast_addr, 0, sizeof(broadcast_addr));
             broadcast_addr.sin_family = AF_INET;
-            broadcast_addr.sin_port = 0;
+            broadcast_addr.sin_addr.s_addr = INADDR_BROADCAST;
             
-            inet_aton("127.0.0.1", &broadcast_addr.sin_addr); // change broadcast address as needed
+            inet_aton("255.255.255.255", &broadcast_addr.sin_addr); // change broadcast address as needed
 
             send_packet(sockfd, &broadcast_addr, MSG_HELLO, 0, NULL, 0);
             printf("<== Broadcast HELLO sent.\n");

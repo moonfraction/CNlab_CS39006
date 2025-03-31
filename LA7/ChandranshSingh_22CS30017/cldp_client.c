@@ -369,7 +369,40 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    srand(time(NULL));
+    int broadcast = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
+        perror("setsockopt SO_BROADCAST error");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set socket options to allow reuse of address
+    int reuse_addr = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr)) < 0) {
+        perror("setsockopt SO_REUSEADDR error");
+        exit(EXIT_FAILURE);
+    }
+    // Bind to any interface
+    struct sockaddr_in saddr;
+    memset(&saddr, 0, sizeof(saddr));
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = 0;  // Bind to any port
+    saddr.sin_addr.s_addr = INADDR_ANY;
+    if (bind(sockfd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+    // Set socket to non-blocking mode
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    if (flags == -1) {
+        perror("fcntl F_GETFL error");
+        exit(EXIT_FAILURE);
+    }
+    if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl F_SETFL error");
+        exit(EXIT_FAILURE);
+    }
+    // Seed the random number generator
+    srand(time(NULL) ^ getpid());
 
     printf("+++ CLDP Client running...\n");
 
