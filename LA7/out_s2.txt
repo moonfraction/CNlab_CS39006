@@ -1,0 +1,6 @@
+> sudo ./s
++++ CLDP Server running...
+<== Broadcast HELLO sent.
+<-- Sent RESPONSE to 192.168.64.8 (trans_id 53624)
+<== Broadcast HELLO sent.
+<== Broadcast HELLO sent.

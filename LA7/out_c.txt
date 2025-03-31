@@ -1,53 +1,3 @@
-<div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-  <div style="font-size: 24px; font-weight: bold;">Chandransh Singh</div>
-  <div style="font-size: 24px; font-weight: bold;">22CS30017</div>
-</div>
-
-
-# CLDP (Custom Lightweight Discovery Protocol)
-
-
-## Build and run instructions
-- I have provided a makefile
-1. to run cldp_server in a terminal
-```bash
-make rs
-```
-2. to run cldp_client in other terminal
-```bash
-make rc
-```
-> We are using raw sockets and need root(`sudo`) privileges
----
-
-## Demo output: 
-### 1. CLDP server 1
-```plaintext
-gcc -Wall -o s cldp_server.c
-> sudo ./s
-+++ CLDP Server running...
-<== Broadcast HELLO sent.
-<-- Sent RESPONSE to 192.168.64.8 (trans_id 34683)
-<== Broadcast HELLO sent.
-<== Broadcast HELLO sent.
-<-- Sent RESPONSE to 192.168.64.8 (trans_id 17901)
-<== Broadcast HELLO sent.
-```
-
-### 2. CLDP server 2
-```plaintext
-gcc -Wall -o s cldp_server.c
-> sudo ./s
-+++ CLDP Server running...
-<== Broadcast HELLO sent.
-<-- Sent RESPONSE to 192.168.64.8 (trans_id 53624)
-<== Broadcast HELLO sent.
-<== Broadcast HELLO sent.
-```
-
-### 3. CLDP client
-```plaintext
-gcc -Wall -o c cldp_client.c
 > sudo ./c
 +++ CLDP Client running...
 ~~~ Listening for HELLO messages: 7 seconds remaining....
@@ -100,4 +50,3 @@ CPU Load: 0.80
 
 Press Enter to repeat the process or type 'exit' to quit: exit
 ~/Desktop >
-```
