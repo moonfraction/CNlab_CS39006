@@ -1,1 +1,4 @@
-[OSI model](https://www.imperva.com/learn/application-security/osi-model/)
+- [OSI model](https://www.imperva.com/learn/application-security/osi-model/)
+- [Computer Networking : Principles, Protocols and Practice](https://www.computer-networking.info/1st/html/index.html)
+- [TCP/IP Tutorial and Technical Overview](https://danzig.us/tcp-ip-lab/ibm-tutorial/3376fm.html)
+- [Cisco-Networking Technologies and Protocols](https://www.cisco.com/c/en/us/tech/index.html)
