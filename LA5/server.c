@@ -386,114 +386,105 @@ void termination_handler(int sig) {
     exit(0);
 }
 
+int setup_server(){
+    // Create shared memory segments
+    if((shm_id = shmget(IPC_PRIVATE, sizeof(Task)*MAX_TASKS, IPC_CREAT | 0666)) < 0){
+        perror("### shmget failed for task queue");
+        return -1;
+    }
+    if((ctrl_shm_id = shmget(CTRL_SHM_KEY, sizeof(ServerControl), IPC_CREAT | 0666)) < 0){
+        perror("### shmget failed for control structure");
+        return -1;
+    }
+    // Attach shared memory segments
+    if((task_queue = (Task *) shmat(shm_id, NULL, 0)) == (Task *) -1){
+        perror("### shmat failed for task queue");
+        return -1;
+    }
+    if((control = (ServerControl *) shmat(ctrl_shm_id, NULL, 0)) == (ServerControl *) -1){
+        perror("### shmat failed for control structure");
+        return -1;
+    }
+    control->all_tasks_completed = 0;
+    control->active_clients = 0;
+
+    // Create semaphore for task queue
+    if((sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666)) < 0){
+        perror("### semget failed");
+        return -1;
+    }
+    // Initialize semaphore to 1 (unlocked)
+    if(semctl(sem_id, 0, SETVAL, 1) == -1){
+        perror("### semctl failed");
+        return -1;
+    }
+    
+    // Load tasks from file
+    if(load_tasks("tasks.txt") < 0){
+        perror("### Error loading tasks");
+        return -1;
+    }
+
+    // Set up signal handlers
+    if(signal(SIGCHLD, sigchld_handler) == SIG_ERR){
+        perror("### signal for SIGCHLD");
+        return -1;
+    }
+    if(signal(SIGINT, termination_handler) == SIG_ERR){
+        perror("### signal for SIGINT");
+        return -1;
+    }
+    if(signal(SIGTERM, termination_handler) == SIG_ERR){
+        perror("### signal for SIGTERM");
+        return -1;
+    }
+
+    // Create socket
+    if((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        perror("### Socket creation failed");
+        return -1;
+    }
+    // Set socket options
+    int opt = 1;
+    if(setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0){
+        perror("### Setsockopt failed");
+        return -1;
+    }
+    // Make server socket non-blocking
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
+
+    // Prepare address structure
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    // Bind socket
+    if(bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0){
+        perror("### Bind failed");
+        return -1;
+    }
+
+    // Listen for connections
+    if(listen(server_fd, BACKLOG) < 0){
+        perror("### Listen failed");
+        return -1;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <task_file>\n", argv[0]);
         return 1;
     }
     
-    // shm segment for tasks
-    shm_id = shmget(IPC_PRIVATE, sizeof(Task) * MAX_TASKS, IPC_CREAT | 0666);
-    if (shm_id < 0) {
-        perror("### shmget failed for task queue");
+    if(setup_server() < 0){
+        fprintf(stderr, "### Server setup failed\n");
         return 1;
     }
-    
-    // shm segment for control structure
-    ctrl_shm_id = shmget(CTRL_SHM_KEY, sizeof(ServerControl), IPC_CREAT | 0666);
-    if (ctrl_shm_id < 0) {
-        perror("### shmget failed for control structure");
-        return 1;
-    }
-    
-    // Attach shm segments
-    task_queue = (Task *) shmat(shm_id, NULL, 0);
-    if (task_queue == (Task *) -1) {
-        perror("### shmat failed for task queue");
-        return 1;
-    }
-    
-    control = (ServerControl *) shmat(ctrl_shm_id, NULL, 0);
-    if (control == (ServerControl *) -1) {
-        perror("### shmat failed for control structure");
-        return 1;
-    }
-    
-    // Initialize control structure
-    control->all_tasks_completed = 0;
-    control->active_clients = 0;
-    
-    // semaphore for task queue
-    sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666);
-    if (sem_id < 0) {
-        perror("### semget failed");
-        return 1;
-    }
-    
-    // Initialize semaphore to 1 (unlocked)
-    if (semctl(sem_id, 0, SETVAL, 1) == -1) {
-        perror("### semctl failed");
-        return 1;
-    }
-    
-    // Load tasks from file
-    if (load_tasks(argv[1]) < 0) {
-        perror("### Error loading tasks");
-        return 1;
-    }
-    
-    // Set up signal handlers using signal() instead of sigaction()
-    if (signal(SIGCHLD, sigchld_handler) == SIG_ERR) {
-        perror("### signal for SIGCHLD");
-        return 1;
-    }
-    
-    if (signal(SIGINT, termination_handler) == SIG_ERR) {
-        perror("### signal for SIGINT");
-        return 1;
-    }
-    
-    if (signal(SIGTERM, termination_handler) == SIG_ERR) {
-        perror("### signal for SIGTERM");
-        return 1;
-    }
-    
-    // Create socket
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
-        perror("### Socket creation failed");
-        return 1;
-    }
-    
-    // Set socket options
-    int opt = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        perror("### Setsockopt failed");
-        return 1;
-    }
-    
-    /* Make server socket non-blocking */
-    int flags = fcntl(server_fd, F_GETFL, 0);
-    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
-    
-    // Prepare address structure
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
-    
-    // Bind socket
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        perror("### Bind failed");
-        return 1;
-    }
-    
-    // Listen for connections
-    if (listen(server_fd, BACKLOG) < 0) {
-        perror("### Listen failed");
-        return 1;
-    }
-    
     printf("+-+ Task Queue Server started on port %d\n", PORT);
     
     while (1) {
