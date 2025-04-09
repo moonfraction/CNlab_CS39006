@@ -4,3 +4,4 @@
 - [Cisco-Networking Technologies and Protocols](https://www.cisco.com/c/en/us/tech/index.html)
 - [List of all assigned protocol numbers](https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml)
 - [Beej's Guide to Network Programming Using Internet Sockets](https://www.gta.ufrj.br/ensino/eel878/sockets/index.html)
+- [Configure IP Addresses and Unique Subnets for New Users](https://www.cisco.com/c/en/us/support/docs/ip/routing-information-protocol-rip/13788-3.html)
